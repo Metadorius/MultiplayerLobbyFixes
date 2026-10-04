@@ -96,7 +96,7 @@ namespace MapMouseSelect
         [HarmonyPostfix]
         private static void Postfix(LobbyListItem __instance)
         {
-            if (!Plugin.MarkStaleServers.Value)
+            if (!Plugin.ShowLatestQueryStatus.Value)
             {
                 return;
             }
@@ -132,7 +132,7 @@ namespace MapMouseSelect
         {
             _list = list;
 
-            if (!Plugin.MarkStaleServers.Value)
+            if (!Plugin.ShowLatestQueryStatus.Value)
             {
                 return;
             }
@@ -236,7 +236,7 @@ namespace MapMouseSelect
         /// </summary>
         internal static void DrawMission(LobbyListItem row)
         {
-            if (!Plugin.MarkStaleServers.Value)
+            if (!Plugin.ShowLatestQueryStatus.Value)
             {
                 return;
             }
@@ -419,7 +419,7 @@ namespace MapMouseSelect
         /// </summary>
         internal static void TickDetails()
         {
-            if (!Plugin.MarkStaleServers.Value)
+            if (!Plugin.ShowLatestQueryStatus.Value)
             {
                 return;
             }

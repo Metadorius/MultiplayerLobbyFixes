@@ -2211,7 +2211,7 @@ namespace MapMouseSelect
         [HarmonyPostfix]
         private static void Postfix(object __instance)
         {
-            if (Plugin.MarkStaleServers.Value)
+            if (Plugin.ShowLatestQueryStatus.Value)
             {
                 try
                 {
@@ -2338,7 +2338,7 @@ namespace MapMouseSelect
 
                 // The mission cell's marker reads this query's cycle too. A response that carried nothing
                 // real is an answer where nothing useful came back, so the marker reads it as no answer.
-                if (Plugin.MarkStaleServers.Value)
+                if (Plugin.ShowLatestQueryStatus.Value)
                 {
                     var id = ServerBrowser.IdOf(lobby);
                     if (__state)
@@ -2446,7 +2446,7 @@ namespace MapMouseSelect
                 ServerBrowser.PingMeasured(id, server.m_nPing);
                 ServerBrowser.Answered(lobby, server);
 
-                if (!Plugin.MarkStaleServers.Value)
+                if (!Plugin.ShowLatestQueryStatus.Value)
                 {
                     return;
                 }
@@ -2491,7 +2491,7 @@ namespace MapMouseSelect
         [HarmonyPostfix]
         private static void Postfix(object __instance)
         {
-            if (!Plugin.MarkStaleServers.Value)
+            if (!Plugin.ShowLatestQueryStatus.Value)
             {
                 return;
             }
@@ -2534,7 +2534,7 @@ namespace MapMouseSelect
         [HarmonyPostfix]
         private static void Postfix(object __instance)
         {
-            if (!Plugin.MarkStaleServers.Value)
+            if (!Plugin.ShowLatestQueryStatus.Value)
             {
                 return;
             }
@@ -2577,7 +2577,7 @@ namespace MapMouseSelect
         [HarmonyPostfix]
         private static void Postfix(object __instance)
         {
-            if (!Plugin.MarkStaleServers.Value)
+            if (!Plugin.ShowLatestQueryStatus.Value)
             {
                 return;
             }

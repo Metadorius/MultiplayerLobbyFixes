@@ -32,8 +32,8 @@ namespace MapMouseSelect
         /// <summary>Whether the details window's Join button stays clickable when the player count says full.</summary>
         internal static ConfigEntry<bool> JoinFullServers { get; private set; }
 
-        /// <summary>Whether rows Steam said nothing about in the last refresh are marked in the ping column.</summary>
-        internal static ConfigEntry<bool> MarkStaleServers { get; private set; }
+        /// <summary>Whether the state of each server's latest query is shown on its row.</summary>
+        internal static ConfigEntry<bool> ShowLatestQueryStatus { get; private set; }
 
         /// <summary>Whether the details window gets a button that asks that one server for its rules and its status again.</summary>
         internal static ConfigEntry<bool> RefreshServerButton { get; private set; }
@@ -73,7 +73,7 @@ namespace MapMouseSelect
                 + "is full. That count is what the server last registered with Steam, not what it has now, so a "
                 + "server reading 32/32 often has room. A server that really is full refuses the join itself.");
 
-            MarkStaleServers = Config.Bind("Server browser", "MarkStaleServers", true,
+            ShowLatestQueryStatus = Config.Bind("Server browser", "ShowLatestQueryStatus", true,
                 "Show the ping query's state in the ping column: a pulsing icon while a query is waiting for an "
                 + "answer, and a warning triangle with a tooltip once the last query came back empty. Servers the "
                 + "ping loop never asks, like the unreachable ones listed from the master list, keep the triangle.");
@@ -83,7 +83,7 @@ namespace MapMouseSelect
                 + "rules and its status again: the mission, the map, the description, the duration, the player count "
                 + "and the ping, without touching the rest of the list. Two queries per press.");
 
-            QuerySpacingMs = Config.Bind("Server browser", "QuerySpacingMs", 10f,
+            QuerySpacingMs = Config.Bind("Server browser", "QuerySpacingMs", 5f,
                 "Milliseconds between the per-server queries the browser fires, its rules queries and its pings, "
                 + "so a refresh spreads out instead of hitting Steam with everything at once. A query over the "
                 + "budget waits its turn rather than being dropped. 0 sends every query immediately.");
@@ -208,7 +208,7 @@ namespace MapMouseSelect
                 + ", listBeforeAnswering=" + ListBeforeAnswering.Value
                 + ", keepServersListed=" + KeepServersListed.Value
                 + ", joinFullServers=" + JoinFullServers.Value
-                + ", markStaleServers=" + MarkStaleServers.Value
+                + ", showLatestQueryStatus=" + ShowLatestQueryStatus.Value
                 + ", refreshServerButton=" + RefreshServerButton.Value
                 + ", querySpacingMs=" + QuerySpacingMs.Value);
         }
