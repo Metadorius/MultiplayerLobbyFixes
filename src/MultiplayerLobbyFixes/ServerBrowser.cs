@@ -1429,6 +1429,10 @@ namespace MapMouseSelect
     /// hit that: its joins all start from the menus. A Steam join does not, and the click should do what it says,
     /// so the session is left the way the quit button leaves it, and the same join is tried again from the menu.
     ///
+    /// The waiting join is dropped when the player starts a game of their own or another join goes through, so
+    /// an old click cannot pull them out of a session they chose; nothing about the wait is timed, it watches
+    /// the network and the scene.
+    ///
     /// A join the game would turn away on its own is not intercepted: a version mismatch fails before the
     /// network is touched either way, and the password prompt goes up first, because leaving the game for a
     /// prompt the player may cancel would be worse than the prompt waiting.
@@ -1436,9 +1440,6 @@ namespace MapMouseSelect
     [HarmonyPatch(typeof(SteamLobby), nameof(SteamLobby.TryJoinLobby))]
     internal static class LeaveThenJoinPatch
     {
-        /// <summary>How long a join waits for the leave to finish before it is dropped.</summary>
-        private const float LeaveTimeout = 20f;
-
         private static LobbyInstance _lobby;
 
         private static string _password;
@@ -1448,8 +1449,6 @@ namespace MapMouseSelect
         private static bool _leaving;
 
         private static bool _replaying;
-
-        private static float _when;
 
         [HarmonyPrefix]
         private static bool Prefix(LobbyInstance lobby, string password, bool promptIfPasswordNeeded)
@@ -1485,14 +1484,13 @@ namespace MapMouseSelect
                 if (network == null || (!network.Server.Active && !network.Client.Active))
                 {
                     // Nothing in the way; a join still waiting for a leave is superseded by this one.
-                    Clear();
+                    Cancel("another join went through");
                     return true;
                 }
 
                 _lobby = lobby;
                 _password = password;
                 _promptIfPasswordNeeded = promptIfPasswordNeeded;
-                _when = Time.time;
 
                 if (!_leaving)
                 {
@@ -1506,6 +1504,7 @@ namespace MapMouseSelect
             catch (Exception e)
             {
                 Plugin.Log.LogError("Could not leave the game in progress for a join: " + e);
+                Cancel("the leave failed");
                 return true;
             }
         }
@@ -1515,13 +1514,6 @@ namespace MapMouseSelect
         {
             if (!_leaving)
             {
-                return;
-            }
-
-            if (Time.time - _when > LeaveTimeout)
-            {
-                Plugin.Verbose("Gave up on a join that was waiting for the game in progress to be left.");
-                Clear();
                 return;
             }
 
@@ -1548,11 +1540,53 @@ namespace MapMouseSelect
             SteamLobby.instance.TryJoinLobby(lobby, password, prompt);
         }
 
+        /// <summary>Drops a join that is still waiting for a leave, for a newer choice the player made.</summary>
+        internal static void Cancel(string why)
+        {
+            if (!_leaving)
+            {
+                return;
+            }
+
+            Plugin.Verbose("A join waiting for the game in progress to be left is dropped: " + why + ".");
+            Clear();
+        }
+
         private static void Clear()
         {
             _lobby = null;
             _password = null;
             _leaving = false;
+        }
+    }
+
+    /// <summary>
+    /// Drops a join that was waiting for a game in progress to be left when the player starts a game of their
+    /// own instead: holding the click's intent past a new choice would join them out of a session they picked.
+    /// </summary>
+    [HarmonyPatch]
+    internal static class PendingJoinCancelPatch
+    {
+        [HarmonyTargetMethods]
+        private static IEnumerable<MethodBase> Targets()
+        {
+            var start = AccessTools.Method(typeof(NetworkManagerNuclearOption), "StartHost");
+            if (start != null)
+            {
+                yield return start;
+            }
+
+            var startAsync = AccessTools.Method(typeof(NetworkManagerNuclearOption), "StartHostAsync");
+            if (startAsync != null)
+            {
+                yield return startAsync;
+            }
+        }
+
+        [HarmonyPrefix]
+        private static void Prefix()
+        {
+            LeaveThenJoinPatch.Cancel("a game of their own was started");
         }
     }
 
