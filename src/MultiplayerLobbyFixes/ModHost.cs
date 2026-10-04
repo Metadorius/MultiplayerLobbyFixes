@@ -35,6 +35,7 @@ namespace MapMouseSelect
         {
             ServerListFailurePatch.TickRescue();
             SteamJoinWatchPatch.Tick();
+            LeaveThenJoinPatch.Tick();
             RichPresenceJoin.Ensure();
             LaunchJoin.Tick();
             JoinFailurePatch.Ensure();

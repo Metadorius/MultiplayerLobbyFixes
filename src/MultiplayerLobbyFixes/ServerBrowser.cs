@@ -1422,6 +1422,141 @@ namespace MapMouseSelect
     }
 
     /// <summary>
+    /// Leaves the game in progress before a join starts, and puts the join through again once the menu is up.
+    ///
+    /// The network runs one client, and StartClient throws while this machine is already in a session ("Can't
+    /// start client because it is already running", which TryJoinLobby reports as "Client Error"). Vanilla never
+    /// hit that: its joins all start from the menus. A Steam join does not, and the click should do what it says,
+    /// so the session is left the way the quit button leaves it, and the same join is tried again from the menu.
+    ///
+    /// A join the game would turn away on its own is not intercepted: a version mismatch fails before the
+    /// network is touched either way, and the password prompt goes up first, because leaving the game for a
+    /// prompt the player may cancel would be worse than the prompt waiting.
+    /// </summary>
+    [HarmonyPatch(typeof(SteamLobby), nameof(SteamLobby.TryJoinLobby))]
+    internal static class LeaveThenJoinPatch
+    {
+        /// <summary>How long a join waits for the leave to finish before it is dropped.</summary>
+        private const float LeaveTimeout = 20f;
+
+        private static LobbyInstance _lobby;
+
+        private static string _password;
+
+        private static bool _promptIfPasswordNeeded;
+
+        private static bool _leaving;
+
+        private static bool _replaying;
+
+        private static float _when;
+
+        [HarmonyPrefix]
+        private static bool Prefix(LobbyInstance lobby, string password, bool promptIfPasswordNeeded)
+        {
+            try
+            {
+                if (_replaying)
+                {
+                    _replaying = false;
+                    return true;
+                }
+
+                if (lobby == null)
+                {
+                    return true;
+                }
+
+                // A join vanilla will turn away anyway must not cost the game in progress: the version check
+                // fails before the network is touched, and the password prompt belongs to the player first.
+                if (lobby.HostVersion != Application.version)
+                {
+                    return true;
+                }
+
+                string ignored;
+                if (promptIfPasswordNeeded && string.IsNullOrEmpty(password)
+                    && lobby.IsPasswordProtected(out ignored))
+                {
+                    return true;
+                }
+
+                var network = NetworkManagerNuclearOption.i;
+                if (network == null || (!network.Server.Active && !network.Client.Active))
+                {
+                    // Nothing in the way; a join still waiting for a leave is superseded by this one.
+                    Clear();
+                    return true;
+                }
+
+                _lobby = lobby;
+                _password = password;
+                _promptIfPasswordNeeded = promptIfPasswordNeeded;
+                _when = Time.time;
+
+                if (!_leaving)
+                {
+                    _leaving = true;
+                    Plugin.Verbose("A join came while a game is in progress, so that game is left first.");
+                    network.Stop(true);
+                }
+
+                return false;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogError("Could not leave the game in progress for a join: " + e);
+                return true;
+            }
+        }
+
+        /// <summary>Runs the waiting join once the leave is done and a menu is up.</summary>
+        internal static void Tick()
+        {
+            if (!_leaving)
+            {
+                return;
+            }
+
+            if (Time.time - _when > LeaveTimeout)
+            {
+                Plugin.Verbose("Gave up on a join that was waiting for the game in progress to be left.");
+                Clear();
+                return;
+            }
+
+            var network = NetworkManagerNuclearOption.i;
+            if (network != null && (network.Server.Active || network.Client.Active))
+            {
+                return;
+            }
+
+            var scene = SceneManager.GetActiveScene().path;
+            if (SteamLobby.instance == null || (scene != MapLoader.MainMenu && scene != MapLoader.MultiplayerMenu))
+            {
+                return;
+            }
+
+            var lobby = _lobby;
+            var password = _password;
+            var prompt = _promptIfPasswordNeeded;
+            _lobby = null;
+            _leaving = false;
+            _replaying = true;
+
+            Plugin.Verbose("The game is left, so the join goes on.");
+            SteamLobby.instance.TryJoinLobby(lobby, password, prompt);
+        }
+
+        private static void Clear()
+        {
+            _lobby = null;
+            _password = null;
+            _leaving = false;
+        }
+    }
+
+    /// <summary>
     /// Answers the Steam join the game never registered a handler for.
     ///
     /// The game publishes its join string as Steam's "connect" rich presence, "+join_lobby &lt;id&gt;", which is
@@ -1549,6 +1684,15 @@ namespace MapMouseSelect
         {
             try
             {
+                if (disconnectReason == ClientStoppedReason.LocalConnectionClosed
+                    || disconnectReason == ClientStoppedReason.ConnectingCancel)
+                {
+                    // The local side stopped: a quit, a leave for another join, or a cancel. Nothing was
+                    // turned away, so there is nothing to show, and any attempt still watched is over.
+                    JoinTracePatch.AttemptedAt = -1f;
+                    return;
+                }
+
                 if (JoinTracePatch.AttemptedAt < 0f)
                 {
                     // No join was watched go out that never connected; the game's own handling stands.
