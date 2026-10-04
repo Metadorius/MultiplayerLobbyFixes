@@ -1690,7 +1690,9 @@ namespace MapMouseSelect
     /// into the branch that only reloads the main menu, and the join overlay keeps saying "Connecting via Steam"
     /// or "Finding server..." over a server that has already refused. The reason is shown here for those, in the
     /// browser's own words, and only while the join never connected: a disconnect from a session that did connect
-    /// is a game dropping its players, not a join refusal, and it keeps the game's own handling.
+    /// is a game dropping its players, not a join refusal, and it keeps the game's own handling. The reason this
+    /// same disconnect armed for the game's main menu is consumed once it has been shown here, so one failure
+    /// cannot be announced twice.
     /// </summary>
     [HarmonyPatch(typeof(NetworkManagerNuclearOption), "ClientDisconnected")]
     internal static class JoinFailurePatch
@@ -1734,8 +1736,16 @@ namespace MapMouseSelect
             JoinTracePatch.AttemptedAt = -1f;
         }
 
+        [HarmonyPrefix]
+        private static void Prefix(out bool __state)
+        {
+            // Whether this disconnect is the one that will arm the game's disconnect reason: the game only sets
+            // it when none is armed, and the main menu consumes it the next time it loads fresh.
+            __state = GameManager.disconnectInfo == null;
+        }
+
         [HarmonyPostfix]
-        private static void Postfix(ClientStoppedReason disconnectReason)
+        private static void Postfix(ClientStoppedReason disconnectReason, bool __state)
         {
             try
             {
@@ -1756,13 +1766,19 @@ namespace MapMouseSelect
 
                 JoinTracePatch.AttemptedAt = -1f;
 
-                if (SceneManager.GetActiveScene().path == MapLoader.MultiplayerMenu)
+                if (SceneManager.GetActiveScene().path != MapLoader.MultiplayerMenu)
                 {
-                    // Joining from the browser itself, where the game shows the reason already.
-                    return;
+                    // A join from anywhere but the browser itself, where the game shows the reason already.
+                    JoinLobbyOverlay.Open(JoinProgress.GetFailReason(disconnectReason));
                 }
 
-                JoinLobbyOverlay.Open(JoinProgress.GetFailReason(disconnectReason));
+                if (__state && GameManager.disconnectInfo != null)
+                {
+                    // The reason this refused join armed is shown now, so consume it: the main menu would
+                    // otherwise show the same failure again the next time it loads. A reason that was
+                    // already pending is not this disconnect's to consume, so it stays for the menu.
+                    GameManager.ClearDisconnectReason();
+                }
             }
             catch (Exception e)
             {
