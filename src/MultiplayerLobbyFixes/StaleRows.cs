@@ -192,22 +192,14 @@ namespace MapMouseSelect
             _step = step;
             foreach (var ask in ServerBrowser.Asking.Values)
             {
-                RepaintIfSeen(ask.Lobby);
+                Repaint(ask.Lobby);
             }
 
             foreach (var ask in ServerBrowser.RulesAsking.Values)
             {
-                RepaintIfSeen(ask.Lobby);
+                Repaint(ask.Lobby);
             }
         }
-
-        /// <summary>The browser whose canvas the visibility test resolved, and that canvas.</summary>
-        private static LobbyList _seenFor;
-
-        private static Canvas _seenCanvas;
-
-        /// <summary>How far outside the screen a row still counts as seen, in pixels.</summary>
-        private const float SeenMargin = 150f;
 
         /// <summary>
         /// Re-reads both markers on a row: the ping column through vanilla's own update, and the mission cell
@@ -216,97 +208,25 @@ namespace MapMouseSelect
         /// </summary>
         internal static void Repaint(ServerLobbyInstance lobby)
         {
-            var row = RowOf(lobby);
-            if (row != null)
-            {
-                Paint(row);
-            }
-        }
-
-        /// <summary>
-        /// Repaints only while the row can be seen: the in-progress glyphs pulse, and a whole-list refresh holds a
-        /// query for every held server at once, so repainting rows scrolled out of view is work nobody sees.
-        /// Settled answers still go through Repaint wherever the row is, so an off-screen row is correct when it
-        /// is scrolled to, and the markers it shows meanwhile are the ones of its last paint.
-        /// </summary>
-        internal static void RepaintIfSeen(ServerLobbyInstance lobby)
-        {
-            var row = RowOf(lobby);
-            if (row != null && OnScreen(row))
-            {
-                Paint(row);
-            }
-        }
-
-        /// <summary>The row a server's entry is shown in, while the browser holds one.</summary>
-        private static LobbyListItem RowOf(ServerLobbyInstance lobby)
-        {
             try
             {
                 var list = _list;
                 if (list == null || lobby == null || AllLobbiesField == null)
                 {
-                    return null;
+                    return;
                 }
 
                 var rows = AllLobbiesField.GetValue(list) as Dictionary<LobbyInstance, LobbyListItem>;
                 LobbyListItem row;
-                return rows != null && rows.TryGetValue(lobby, out row) ? row : null;
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogError("Could not find a server row: " + e);
-                return null;
-            }
-        }
-
-        private static void Paint(LobbyListItem row)
-        {
-            try
-            {
-                var at = PerfProbe.Now;
-                row.UpdatePing();
-                DrawMission(row);
-                PerfProbe.Add(PerfProbe.Paint, at);
+                if (rows != null && rows.TryGetValue(lobby, out row) && row != null)
+                {
+                    row.UpdatePing();
+                    DrawMission(row);
+                }
             }
             catch (Exception e)
             {
                 Plugin.Log.LogError("Could not repaint a server row: " + e);
-            }
-        }
-
-        /// <summary>
-        /// Whether the row is on screen, or just outside it, which is what the pulse and the in-progress glyphs
-        /// are painted for. The row positions convert through the canvas the list sits under: an overlay canvas
-        /// already works in screen pixels, a camera canvas projects through its camera.
-        /// </summary>
-        private static bool OnScreen(LobbyListItem row)
-        {
-            try
-            {
-                if (row == null || !row.gameObject.activeInHierarchy)
-                {
-                    return false;
-                }
-
-                if (_seenFor != _list)
-                {
-                    _seenFor = _list;
-                    _seenCanvas = _list != null ? _list.GetComponentInParent<Canvas>() : null;
-                }
-
-                var camera = _seenCanvas != null && _seenCanvas.renderMode != RenderMode.ScreenSpaceOverlay
-                    ? _seenCanvas.worldCamera
-                    : null;
-
-                var point = RectTransformUtility.WorldToScreenPoint(camera, row.transform.position);
-                return point.x >= -SeenMargin && point.x <= Screen.width + SeenMargin
-                    && point.y >= -SeenMargin && point.y <= Screen.height + SeenMargin;
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogError("Could not tell whether a server row is on screen: " + e);
-                return true;
             }
         }
 

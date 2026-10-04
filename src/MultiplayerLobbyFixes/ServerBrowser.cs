@@ -727,7 +727,7 @@ namespace MapMouseSelect
             // Outcome, which is what puts the in-progress glyphs up and takes them back down again.
             PingStarted(lobby);
             RulesStarted(lobby);
-            StaleRowPatch.RepaintIfSeen(lobby);
+            StaleRowPatch.Repaint(lobby);
 
             Plugin.Verbose("Asked " + lobby.LobbyNameSanitized + " (" + id + ") for its rules and its details.");
 
@@ -910,7 +910,6 @@ namespace MapMouseSelect
         /// </summary>
         internal static void RefreshListed()
         {
-            var press = PerfProbe.Now;
             var manager = SteamLobby.instance;
             var lobbies = manager != null && LobbiesField != null
                 ? LobbiesField.GetValue(manager) as Dictionary<CSteamID, LobbyInstance>
@@ -941,14 +940,7 @@ namespace MapMouseSelect
                 }
             }
 
-            PerfProbe.Add(PerfProbe.Press, press);
             Plugin.Verbose("Asked " + asked + " of the servers in hand for their rules and their details again.");
-        }
-
-        /// <summary>Refreshes still owed an answer; zero means the browser is quiet.</summary>
-        internal static int OutstandingQuestions
-        {
-            get { return Questioned.Count; }
         }
 
         /// <summary>Finishes a refresh that is over, either because both answers came or because it was given up on.</summary>
@@ -2514,7 +2506,7 @@ namespace MapMouseSelect
                 }
 
                 ServerBrowser.PingStarted(lobby);
-                StaleRowPatch.RepaintIfSeen(lobby);
+                StaleRowPatch.Repaint(lobby);
             }
             catch (Exception e)
             {
@@ -2557,7 +2549,7 @@ namespace MapMouseSelect
                 }
 
                 ServerBrowser.RulesStarted(lobby);
-                StaleRowPatch.RepaintIfSeen(lobby);
+                StaleRowPatch.Repaint(lobby);
             }
             catch (Exception e)
             {
@@ -2831,16 +2823,9 @@ namespace MapMouseSelect
         [HarmonyPrefix]
         private static void BeforeUpdate(LobbyList __instance)
         {
-            var tick = PerfProbe.Now;
             StaleRowPatch.Tick(__instance);
-            PerfProbe.Add(PerfProbe.Tick, tick);
-
-            var list = PerfProbe.Now;
             ServerBrowser.RefreshTick();
             ServerBrowser.Admit(__instance);
-            PerfProbe.Add(PerfProbe.List, list);
-
-            PerfProbe.Frame();
 
             var waiting = _waiting;
             if (waiting == null)
@@ -2869,9 +2854,7 @@ namespace MapMouseSelect
                     _sort = (Action<LobbyList>)SortMethod.CreateDelegate(typeof(Action<LobbyList>));
                 }
 
-                var sort = PerfProbe.Now;
                 _sort(__instance);
-                PerfProbe.Add(PerfProbe.Sort, sort);
             }
             catch (Exception e)
             {
