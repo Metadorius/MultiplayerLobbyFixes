@@ -35,7 +35,7 @@ namespace MapMouseSelect
         /// </summary>
         internal static bool TryIssue(string what, Action call)
         {
-            if (_issuing || Plugin.QuerySpacingMs.Value <= 0f)
+            if (_issuing || !Plugin.ThrottleQueries.Value || Plugin.QuerySpacingMs.Value <= 0f)
             {
                 return true;
             }

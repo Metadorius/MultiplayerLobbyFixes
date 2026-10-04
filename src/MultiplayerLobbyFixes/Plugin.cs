@@ -38,6 +38,9 @@ namespace MapMouseSelect
         /// <summary>Whether the details window gets a button that asks that one server for its rules and its status again.</summary>
         internal static ConfigEntry<bool> RefreshServerButton { get; private set; }
 
+        /// <summary>Whether the per-server queries go through the spacing queue instead of out at once.</summary>
+        internal static ConfigEntry<bool> ThrottleQueries { get; private set; }
+
         /// <summary>Milliseconds between the browser's per-server queries, which spreads a refresh's burst out.</summary>
         internal static ConfigEntry<float> QuerySpacingMs { get; private set; }
 
@@ -82,6 +85,11 @@ namespace MapMouseSelect
                 "Add a Refresh button to the server details window, left of Join, which asks that one server for its "
                 + "rules and its status again: the mission, the map, the description, the duration, the player count "
                 + "and the ping, without touching the rest of the list. Two queries per press.");
+
+            ThrottleQueries = Config.Bind("Server browser", "ThrottleQueries", true,
+                "Send the per-server rules queries and pings through the spacing queue instead of letting them all "
+                + "go out at once, the game's own ping loop included. With this off every query goes out "
+                + "immediately, the same as setting QuerySpacingMs to 0.");
 
             QuerySpacingMs = Config.Bind("Server browser", "QuerySpacingMs", 5f,
                 "Milliseconds between the per-server queries the browser fires, its rules queries and its pings, "
@@ -210,6 +218,7 @@ namespace MapMouseSelect
                 + ", joinFullServers=" + JoinFullServers.Value
                 + ", showLatestQueryStatus=" + ShowLatestQueryStatus.Value
                 + ", refreshServerButton=" + RefreshServerButton.Value
+                + ", throttleQueries=" + ThrottleQueries.Value
                 + ", querySpacingMs=" + QuerySpacingMs.Value);
         }
 
