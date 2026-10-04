@@ -1,6 +1,6 @@
 # Multiplayer Lobby Fixes
 
-All conceivable Nuclear Option multiplayer browser and Steam "join game" fixes in one package.
+A mod that fixes the server list (best-effort until devs fix it for real), overhauls it and the filter list, and fixes all known to me issues with Steam joins.
 
 ## Changes
 
@@ -12,11 +12,15 @@ Please note that most of the changes only apply to *dedicated servers*, as that'
 
 - The server browser now shows the dedicated servers ASAP regardless of whether the game/Steam thinks they're reachable (cause they frequently are despite queries not going through).
   - The servers which were not reached are not re-pinged automatically to save queries.
+
+  ![The server browser: the servers listed with their markers and the filter list](docs/media/serverlist.gif)
 - Nothing clears the server list anymore (because Steam quickly stops returning you the server list because of rate limit or w/e), including `🔃 Refresh` button, which now just appends/amends (if the entry has legit info) the server entries.
   - A refresh makes all the servers in the list refresh regardless if they came in an answer.
   - The servers survive leaving the multiplayer screen and coming back, too.
 - If a server entry receives proper piece of info (name, player count, etc), a bogus piece of info (0/0 player count) won't ever replace it anymore.
 - Added a per-server **`🔃 Refresh` button** in the detailed server info.
+
+  ![The details window, with its own Refresh button next to Join](docs/media/serverrefresh.gif)
 - Added markers of state of the per-server data:
   - 3 states:
     - ⚠️ icon for possibly stale information (request wasn't answered, or answered with nothing usable), with a clarification in a tooltip,
@@ -80,10 +84,10 @@ This mod is authored by an experienced software engineer, but by vibecoding as a
 
 This mod doesn't aim to circumvent any protections or harm any player or service. By default queries are throttled in hopes of reducing rate limiting and to not hammer anything.
 
-## Contributions
+## Acknowledgements
 
-(if something is not listed - )
-
+- **erjet** - help testing the Steam game joins
+- **Moroznik** - help testing the Steam game joins
 
 ## Licence
 
