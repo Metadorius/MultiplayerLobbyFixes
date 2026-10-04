@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using Cysharp.Threading.Tasks;
 using HarmonyLib;
 using Mirage;
 using NuclearOption.Networking;
@@ -1496,7 +1497,7 @@ namespace MapMouseSelect
                 {
                     _leaving = true;
                     Plugin.Verbose("A join came while a game is in progress, so that game is left first.");
-                    network.Stop(true);
+                    LeaveAsync(network).Forget();
                 }
 
                 return false;
@@ -1538,6 +1539,24 @@ namespace MapMouseSelect
 
             Plugin.Verbose("The game is left, so the join goes on.");
             SteamLobby.instance.TryJoinLobby(lobby, password, prompt);
+        }
+
+        /// <summary>
+        /// Asks the game to leave through the same task the quit button runs, and catches what the fire-and-forget
+        /// Stop cannot: a leave that fails drops the waiting join instead of staying armed, and a leave that
+        /// finishes leaves the replay to Tick's state check.
+        /// </summary>
+        private static async UniTaskVoid LeaveAsync(NetworkManagerNuclearOption network)
+        {
+            try
+            {
+                await network.StopAsync(true);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogError("Could not leave the game in progress for a join: " + e);
+                Cancel("the leave failed");
+            }
         }
 
         /// <summary>Drops a join that is still waiting for a leave, for a newer choice the player made.</summary>

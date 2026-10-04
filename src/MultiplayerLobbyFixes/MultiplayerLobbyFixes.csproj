@@ -81,6 +81,12 @@
       <Private>false</Private>
     </Reference>
 
+    <!-- Awaiting the game's own stop task, so a leave that fails can drop the join that was waiting on it. -->
+    <Reference Include="UniTask">
+      <HintPath>$(ManagedDir)\UniTask.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
     <!-- BepInEx 5 + HarmonyX, both shipped with the loader. -->
     <Reference Include="BepInEx">
       <HintPath>$(BepInExCore)\BepInEx.dll</HintPath>
