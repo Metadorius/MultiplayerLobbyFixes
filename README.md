@@ -29,16 +29,20 @@ Please note that most of the changes only apply to *dedicated servers*, as that'
     - server status query (in ping field)
 - The `Join` button is not grayed out anymore to be able to join to "0/0" servers (the legit full server will refuse a join anyway).
 - Filters are now fully local and never requery.
-- Queries are throttled to 10ms by default.
+- Queries are throttled by default to not hammer the servers or Steam.
+  - When enabled, one query per frame max. is going out, 0ms delay corresponds to that.
+  - 5ms is the default minimal cooldown.
 - Servers listed because Steam's master list could not reach them are held out of the game's ping loop, which would otherwise ask those silent hosts again on every pass and hold a socket per attempt until the client's socket set runs out and later refreshes come back nearly empty; one of them answering anything, or a master list that reaches it, puts it back in the loop.
-- `Join Game` from Steam (and CLI) now properly works
-  - the redundant queries/checks were removed or are skipped if they do some miniscule use, actually joining the game is the first priority
-  - the queries (both joining player and server lobbies) are made twice because for some reason the first queries are usually refused by Steam
-  - fixed `Join Game` not working from desktop because of `+join_lobby` being passed instead of `-joinLobby` (unsure if some mod issue or vanilla)
-  - implemented `Join Game` support from when you're already in Nuclear Option (the game had no handling for this whatsoever apparently)
-- Join Game with the game closed now works too: Steam starts it with `+join_lobby <id>`, and the game's command line parser only knows `-joinLobby`, so the argument used to be dropped; the mod reads it and joins once the main menu is up.
+- `Join Game` from Steam (and CLI) now properly works in all cases:
+  - the redundant queries/checks were removed or are skipped if they do some miniscule use (in future may be skipped completely), actually joining the game is the first priority, which makes it work for servers better,
+  - the queries (both joining player and server lobbies) are made twice because for some reason the first queries are usually refused by Steam,
+  - fixed `Join Game` not working from desktop because of `+join_lobby` being passed instead of `-joinLobby` (unsure if some mod issue or vanilla),
+  - implemented `Join Game` support from when you're already in Nuclear Option (the game had no handling for this whatsoever apparently), with full "leave current screen safely" handling by the game;
 - A join that fails outside the server browser (a Steam invite, the launch argument) now shows why, "Server full" and the rest, instead of leaving the join overlay at "Connecting via Steam"; the game shows those reasons only from inside the browser.
-- Possible future improvement: a join could skip the master list entirely, connecting from the Steam ID alone with the current version written into a made-up copy ("no password" and all), since a server that really does not match refuses the connection itself and the guess costs only a failed attempt. Left out for now because the version guess turns the game's clean "Incorrect version" into a failed connect, and a password-protected server would be joined without its prompt.
+
+## Known issues
+
+Sometimes the console can spam `count < FD_SETSIZE` lines while refreshing. They should stop on their own.
 
 ## Download and install
 
@@ -68,9 +72,9 @@ The build resolves the game path from `-p:NuclearOptionRoot` first, then `Direct
 
 This mod is authored by an experienced software engineer, but by vibecoding as an experiment. Treat it as pre-release, because the code has only been partially reviewed manually (but is tested to the extent of my imagination). It is published in the hope that it is useful, but as is and without warranties.
 
-### Client-side mod and fair play considerations
+### Fair usage disclaimer
 
-This one is plumbing around the server browser and the join, so there is no gameplay advantage to weigh: it spends fewer queries on the same information, shows the servers vanilla hides for being quiet, and repairs joins the game would have failed on its own. Every change is visible to the server as the same query or join the game itself makes.
+This mod doesn't aim to circumvent any protections or harm any player or service. By default queries are throttled in hopes of reducing rate limiting and to not hammer anything.
 
 ## Licence
 
