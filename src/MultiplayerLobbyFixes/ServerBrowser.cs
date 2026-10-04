@@ -727,7 +727,7 @@ namespace MapMouseSelect
             // Outcome, which is what puts the in-progress glyphs up and takes them back down again.
             PingStarted(lobby);
             RulesStarted(lobby);
-            StaleRowPatch.Repaint(lobby);
+            StaleRowPatch.RepaintIfSeen(lobby);
 
             Plugin.Verbose("Asked " + lobby.LobbyNameSanitized + " (" + id + ") for its rules and its details.");
 
@@ -2506,7 +2506,7 @@ namespace MapMouseSelect
                 }
 
                 ServerBrowser.PingStarted(lobby);
-                StaleRowPatch.Repaint(lobby);
+                StaleRowPatch.RepaintIfSeen(lobby);
             }
             catch (Exception e)
             {
@@ -2549,7 +2549,7 @@ namespace MapMouseSelect
                 }
 
                 ServerBrowser.RulesStarted(lobby);
-                StaleRowPatch.Repaint(lobby);
+                StaleRowPatch.RepaintIfSeen(lobby);
             }
             catch (Exception e)
             {
