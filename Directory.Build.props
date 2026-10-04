@@ -1,0 +1,32 @@
+<Project>
+
+  <!--
+    Shared paths for building against the game install.
+
+    NuclearOptionRoot is resolved in this order:
+      1. -p:NuclearOptionRoot="..." on the command line
+      2. Directory.Build.user.props (copy the .example file; it is gitignored)
+      3. the NUCLEAR_OPTION_ROOT environment variable
+
+    Nothing here assumes a particular machine. If the path cannot be resolved the build fails
+    with an explanatory error rather than guessing.
+  -->
+  <Import Project="Directory.Build.user.props" Condition="Exists('Directory.Build.user.props')" />
+
+  <PropertyGroup>
+    <!-- MSBuild surfaces environment variables as properties, so the env var needs no lookup. -->
+    <NuclearOptionRoot Condition="'$(NuclearOptionRoot)' == ''">$(NUCLEAR_OPTION_ROOT)</NuclearOptionRoot>
+  </PropertyGroup>
+
+  <Target Name="RequireNuclearOptionRoot" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(NuclearOptionRoot)' == ''"
+           Text="NuclearOptionRoot is not set. Copy Directory.Build.user.props.example to Directory.Build.user.props and set the path to your Nuclear Option install, set the NUCLEAR_OPTION_ROOT environment variable, or pass -p:NuclearOptionRoot=&quot;X:\path\to\Nuclear Option&quot;." />
+  </Target>
+
+  <PropertyGroup>
+    <ManagedDir>$(NuclearOptionRoot)\NuclearOption_Data\Managed</ManagedDir>
+    <BepInExCore>$(NuclearOptionRoot)\BepInEx\core</BepInExCore>
+    <PluginsDir>$(NuclearOptionRoot)\BepInEx\plugins</PluginsDir>
+  </PropertyGroup>
+
+</Project>

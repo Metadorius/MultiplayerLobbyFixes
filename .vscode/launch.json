@@ -1,0 +1,24 @@
+{
+  // F5 builds and deploys the mod, then starts Nuclear Option. The lobby work happens in the main
+  // menu and the multiplayer screen, and a Steam join starts from the Steam client, so this is a
+  // plain launch: start the game, then drive the join from Steam.
+  //
+  // The game is a release Mono build, so there are no managed symbols to stop on: this launches the
+  // process, it does not give you C# breakpoints. Log output is in
+  // BepInEx\LogOutput.log as usual.
+  //
+  // The install path comes from the nuclearOption.root setting (.vscode\settings.json).
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Nuclear Option",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${config:nuclearOption.root}\\NuclearOption.exe",
+      "args": [],
+      "cwd": "${config:nuclearOption.root}",
+      "console": "internalConsole",
+      "preLaunchTask": "build mod"
+    }
+  ]
+}

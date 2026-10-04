@@ -1,0 +1,15 @@
+{
+    "id": "com.kerbiter.multiplayerlobbyfixes",
+    "artifact": {
+        "fileName": "com.kerbiter.multiplayerlobbyfixes_v0.1.0.zip",
+        "version": "0.1.0",
+        "category": "Release",
+        "type": "plugin",
+        "gameVersion": "0.34.1",
+        "downloadUrl": null,
+        "hash": null,
+        "extends": null,
+        "dependencies": [],
+        "incompatibilities": []
+    }
+}

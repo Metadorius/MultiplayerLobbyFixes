@@ -1,0 +1,16 @@
+<Project>
+
+  <!--
+    Copy this file to Directory.Build.user.props (same folder) and set the path to your
+    Nuclear Option install. Directory.Build.user.props is gitignored, so your local paths
+    stay out of the repository.
+
+    You can also set the NUCLEAR_OPTION_ROOT environment variable, or pass
+    -p:NuclearOptionRoot="X:\path\to\Nuclear Option" on the command line.
+  -->
+
+  <PropertyGroup>
+    <NuclearOptionRoot>C:\Program Files (x86)\Steam\steamapps\common\Nuclear Option</NuclearOptionRoot>
+  </PropertyGroup>
+
+</Project>
