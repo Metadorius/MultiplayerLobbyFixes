@@ -1616,8 +1616,8 @@ namespace MapMouseSelect
     /// what makes Join Game work while the game is not running: Steam starts it with that string and the command
     /// line parser joins. With the game already running, Steam sends the same string through
     /// GameRichPresenceJoinRequested instead, and the game never registered that callback, so the click lands
-    /// nowhere and nothing happens at all. The string is taken here and handed to the same join the command line
-    /// parser uses.
+    /// nowhere and nothing happens at all. The string is taken here and handed to the same join the friends-list
+    /// invites use, which asks before leaving a game in progress and stops the network before the join.
     /// </summary>
     internal static class RichPresenceJoin
     {
@@ -1671,7 +1671,9 @@ namespace MapMouseSelect
                     return;
                 }
 
-                manager.CliJoinBySteamId(new CSteamID(id));
+                // Through the game's own invite flow: the confirmation and the leave a join from inside a game
+                // needs come with it.
+                InviteJoinModal.TryJoin(() => manager.CliJoinBySteamId(new CSteamID(id)));
             }
             catch (Exception e)
             {
