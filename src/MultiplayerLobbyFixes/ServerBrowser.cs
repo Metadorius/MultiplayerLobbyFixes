@@ -225,7 +225,6 @@ namespace MapMouseSelect
                 return;
             }
 
-            Plugin.Verbose("Rules query for " + id.m_SteamID + ": asked.");
             RulesAsking[id.m_SteamID] = new Ask { Lobby = lobby, When = Time.time };
         }
 
@@ -237,7 +236,6 @@ namespace MapMouseSelect
                 return;
             }
 
-            Plugin.Verbose("Rules query for " + id.m_SteamID + ": answered.");
             RulesAsking.Remove(id.m_SteamID);
             RulesSettled[id.m_SteamID] = true;
         }
@@ -250,7 +248,6 @@ namespace MapMouseSelect
                 return;
             }
 
-            Plugin.Verbose("Rules query for " + id.m_SteamID + ": failed.");
             RulesAsking.Remove(id.m_SteamID);
             RulesSettled[id.m_SteamID] = false;
         }
@@ -729,11 +726,10 @@ namespace MapMouseSelect
             RulesStarted(lobby);
             StaleRowPatch.Repaint(lobby);
 
-            Plugin.Verbose("Asked " + lobby.LobbyNameSanitized + " (" + id + ") for its rules and its details.");
-
             if (immediate)
             {
                 // A press goes out on the spot, past the query queue: the player is waiting on it.
+                Plugin.Verbose("Asked " + lobby.LobbyNameSanitized + " (" + id + ") for its rules and its details.");
                 QueryThrottle.Now(() =>
                     SteamMatchmakingServers.ServerRules(address.GetIP(), address.GetQueryPort(), question.Rules));
                 QueryThrottle.Now(() =>
@@ -970,6 +966,11 @@ namespace MapMouseSelect
             {
                 Completion(question, false);
             }
+
+            Plugin.Verbose(
+                stuck.Count == 1
+                    ? "Gave up on one refresh that never answered."
+                    : "Gave up on " + stuck.Count + " refreshes that never answered.");
         }
 
         private static void Finish(Question question)
@@ -986,11 +987,9 @@ namespace MapMouseSelect
                 return;
             }
 
-            if (!settled)
-            {
-                Plugin.Verbose("Gave up on the refresh of " + lobby.LobbyNameSanitized + ".");
-            }
-            else if (!question.RulesAnswered)
+            // Give-ups are reported in one line by RefreshTick, where a big press makes a wave of them; only the
+            // details window's own ask keeps a line per refresh.
+            if (settled && !question.RulesAnswered && question.Updated != null)
             {
                 Plugin.Verbose("The refresh of " + lobby.LobbyNameSanitized + " got no rules answer.");
             }

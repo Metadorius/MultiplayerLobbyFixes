@@ -266,32 +266,9 @@ namespace MapMouseSelect
                     : row.MapName + " | " + row.MissionName;
             }
 
-            var was = MarkerOf(mission.text);
             mission.text = glyph != null ? glyph + text : text;
-            var isNow = MarkerOf(mission.text);
-            if (was != isNow)
-            {
-                Plugin.Verbose(
-                    "Rules marker on " + ServerBrowser.IdOf(lobby).m_SteamID + ": " + was + " -> " + isNow + ".");
-            }
 
             SetHover(mission, ListOf(row), reason);
-        }
-
-        /// <summary>Which marker a mission cell is carrying, for the trace that says when one appears or goes.</summary>
-        private static string MarkerOf(string text)
-        {
-            if (text == null)
-            {
-                return "none";
-            }
-
-            if (text.IndexOf('\ue002') >= 0)
-            {
-                return "warning";
-            }
-
-            return text.IndexOf('\ue86a') >= 0 ? "spinner" : "none";
         }
 
         private static string Spinner()

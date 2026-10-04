@@ -55,7 +55,6 @@ namespace MapMouseSelect
             }
 
             Pending.Enqueue(new KeyValuePair<string, Action>(what, call));
-            Plugin.Verbose("Queued a " + what + " query, " + Pending.Count + " waiting.");
             return false;
         }
 
@@ -80,7 +79,6 @@ namespace MapMouseSelect
             try
             {
                 next.Value();
-                Plugin.Verbose("Issued a queued " + next.Key + " query, " + Pending.Count + " left.");
             }
             catch (Exception e)
             {
