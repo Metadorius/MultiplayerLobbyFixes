@@ -88,13 +88,15 @@ namespace MapMouseSelect
 
             ThrottleQueries = Config.Bind("Server browser", "ThrottleQueries", true,
                 "Send the per-server rules queries and pings through the spacing queue instead of letting them all "
-                + "go out at once, the game's own ping loop included. With this off every query goes out "
-                + "immediately, the same as setting QuerySpacingMs to 0.");
+                + "go out at once, the game's own ping loop included. The queue sends at most one query a frame; "
+                + "with this off every query goes out immediately.");
 
             QuerySpacingMs = Config.Bind("Server browser", "QuerySpacingMs", 5f,
                 "Milliseconds between the per-server queries the browser fires, its rules queries and its pings, "
-                + "so a refresh spreads out instead of hitting Steam with everything at once. A query over the "
-                + "budget waits its turn rather than being dropped. 0 sends every query immediately.");
+                + "so a refresh spreads out instead of hitting Steam with everything at once. The queue sends at "
+                + "most one query a frame however small this is, so 0 means one query a frame; a query over the "
+                + "budget waits its turn rather than being dropped. The ThrottleQueries toggle turns the queue off "
+                + "altogether.");
 
             VerboseLogging = Config.Bind("Diagnostics", "VerboseLogging", true,
                 "Log what the browser and the Steam joins are doing.");

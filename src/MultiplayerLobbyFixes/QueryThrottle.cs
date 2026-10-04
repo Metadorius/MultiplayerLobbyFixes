@@ -11,7 +11,8 @@ namespace MapMouseSelect
     ///
     /// Every rules query and every ping in the game goes through SteamMatchmakingServers, so both calls are
     /// fenced here: a query that arrives sooner than the configured spacing after the last one waits in a queue
-    /// instead of being dropped, and a pump owned by this mod issues what is waiting, one query per interval.
+    /// instead of being dropped, and a pump owned by this mod issues what is waiting, at most one a frame and
+    /// no sooner than the spacing apart.
     /// The callers get nothing back for a queued query and live with it: the game stores the handle only to
     /// cancel it later, and the answers, which is all anyone reads, arrive normally.
     ///
@@ -25,6 +26,9 @@ namespace MapMouseSelect
 
         private static float _nextAt;
 
+        /// <summary>The frame a query last went out in, so a spacing of 0 still means one query a frame.</summary>
+        private static int _issuedFrame = -1;
+
         /// <summary>Set while a queued query is being issued, so it is not queued again on its way out.</summary>
         private static bool _issuing;
 
@@ -35,14 +39,15 @@ namespace MapMouseSelect
         /// </summary>
         internal static bool TryIssue(string what, Action call)
         {
-            if (_issuing || !Plugin.ThrottleQueries.Value || Plugin.QuerySpacingMs.Value <= 0f)
+            if (_issuing || !Plugin.ThrottleQueries.Value)
             {
                 return true;
             }
 
             var now = Time.time;
-            if (Pending.Count == 0 && now >= _nextAt)
+            if (Pending.Count == 0 && now >= _nextAt && Time.frameCount != _issuedFrame)
             {
+                _issuedFrame = Time.frameCount;
                 _nextAt = now + Plugin.QuerySpacingMs.Value / 1000f;
                 return true;
             }
@@ -58,7 +63,7 @@ namespace MapMouseSelect
             return false;
         }
 
-        /// <summary>Issues one queued query once the spacing has passed, which the pump calls every frame.</summary>
+        /// <summary>Issues one queued query once the spacing has passed; the pump calls it every frame, so at most one query a frame goes out.</summary>
         internal static void Drain()
         {
             if (Pending.Count == 0)
@@ -67,12 +72,13 @@ namespace MapMouseSelect
             }
 
             var now = Time.time;
-            if (now < _nextAt)
+            if (now < _nextAt || Time.frameCount == _issuedFrame)
             {
                 return;
             }
 
             var next = Pending.Dequeue();
+            _issuedFrame = Time.frameCount;
             _nextAt = now + Plugin.QuerySpacingMs.Value / 1000f;
 
             _issuing = true;
