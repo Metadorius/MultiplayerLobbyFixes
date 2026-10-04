@@ -1,19 +1,26 @@
 # Multiplayer Lobby Fixes
 
-WIP fix mod for Nuclear Option: the server browser lists the dedicated servers this machine cannot query instead of dropping them, keeps its rows across refreshes, and joining a game over Steam works from wherever the click lands, whether the game is running or not. The map and target list half of this work lives in [Map Mouse Select](https://github.com/Metadorius/MapMouseSelect). Name pending.
+All conceivable Nuclear Option multiplayer browser and Steam "join game" fixes in one package.
 
 ## Changes
 
 Many of those things have configurations if you have BepInEx config manager installed.
 
-### Added
+Please note that most of the changes only apply to *dedicated servers*, as that's where the issues were.
 
-- The server browser lists the dedicated servers that do not answer your rules and ping queries, with an empty ping and no mission details, instead of dropping them. They are usually reachable through Steam even when a direct query is not.
-- Servers appear as soon as Steam's list returns them rather than after they answer.
-- A refresh no longer empties the list you are looking at: a refresh that returns nothing leaves the list as it was, and the servers survive leaving the multiplayer screen and coming back to it.
-- A server that gave a player count before keeps it rather than reading 0/0 when the master list loses it; the ping loop's answers carry a fresh name, player count and password flag and are used too, so a row keeps moving even while the master list is failing.
-- A Refresh button in the server details window, beside Join, which asks that one server for its rules and its status again: the mission, the map, the description, the duration, the player count and the ping, without touching the rest of the list.
-- The ping column shows the ping query's state: a pulsing icon while a query is out, and a warning triangle with a tooltip when one comes back with nothing, including for the servers the ping loop never asks. The mission cell shows the same for the rules query, which is what carries the map and the mission. Both also appear in the details window, on its ping and mission rows.
+### Changes
+
+- The server browser now shows the dedicated servers ASAP regardless of whether the game/Steam thinks they're reachable (cause they frequently are despite queries not going through).
+- Nothing clears the server list anymore (because Steam quickly stops returning you the server list because of rate limit or w/e).
+- If a server entry receives proper piece of info (name, player count, etc), a bogus piece of info (0/0 player count) won't ever replace it anymore.
+- Added a per-server **refresh button** in the detailed server info.
+- Added markers of state of the info, displayed per server:
+  - 3 states:
+    - ⚠️ icon for possibly stale information (request wasn't answered, or answered with nothing usable), with a clarification in a tooltip,
+    - animated 🔃 icon for a query in progress;
+    - no icon - fresh info
+  - both of those are shown in mission field for server *rules* request and in ping field
+
 
 ### Changed from vanilla
 

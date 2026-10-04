@@ -90,12 +90,15 @@ namespace MapMouseSelect
                 return;
             }
 
-            PingsMeasured.Add(id.m_SteamID);
-
-            if (ping > 0)
+            if (!PingLooksMeasured(ping))
             {
-                LastPings[id.m_SteamID] = ping;
+                // A number Steam uses for no ping is no measurement: it is kept out of the column and out of
+                // the marks both, so a response that carries one reads as no answer everywhere.
+                return;
             }
+
+            PingsMeasured.Add(id.m_SteamID);
+            LastPings[id.m_SteamID] = ping;
         }
 
         /// <summary>How a query cycle for a server stands, which is what the two markers read.</summary>
@@ -275,6 +278,16 @@ namespace MapMouseSelect
         /// <summary>Steam's way of saying it got no ping from a server, seen on every copy that came with a failure.</summary>
         private const int PingPlaceholder = 2000;
 
+        /// <summary>
+        /// Whether a ping number is a measurement rather than one of the shapes Steam uses for no ping: nought,
+        /// a negative, or the 2000 placeholder a copy that failed to answer carries. Everything else is read as
+        /// no answer, the same way the copy repair reads it.
+        /// </summary>
+        internal static bool PingLooksMeasured(int ping)
+        {
+            return ping > 0 && ping < PingPlaceholder;
+        }
+
         /// <summary>Whether each server's last good copy asked for a password, by server.</summary>
         private static readonly Dictionary<ulong, bool> LastLocked = new Dictionary<ulong, bool>();
 
@@ -344,7 +357,7 @@ namespace MapMouseSelect
             }
 
             int ping;
-            if ((copy.m_nPing <= 0 || copy.m_nPing >= PingPlaceholder) && LastPings.TryGetValue(id.m_SteamID, out ping))
+            if (!PingLooksMeasured(copy.m_nPing) && LastPings.TryGetValue(id.m_SteamID, out ping))
             {
                 copy.m_nPing = ping;
                 replaced.Add("ping");
@@ -618,6 +631,9 @@ namespace MapMouseSelect
 
             internal bool RulesAnswered;
 
+            /// <summary>Whether the rules response itself carried a key only a rules answer carries.</summary>
+            internal bool RulesCarried;
+
             internal bool DetailsSettled;
 
             internal ISteamMatchmakingRulesResponse Rules;
@@ -688,7 +704,14 @@ namespace MapMouseSelect
             var address = details.m_NetAdr;
 
             question.Rules = new ISteamMatchmakingRulesResponse(
-                new ISteamMatchmakingRulesResponse.RulesResponded((key, value) => lobby.SetRule(key, value)),
+                new ISteamMatchmakingRulesResponse.RulesResponded((key, value) =>
+                {
+                    lobby.SetRule(key, value);
+
+                    // Watched as the keys arrive: only this answer's own keys can be told apart from what the
+                    // dictionary already held.
+                    question.RulesCarried = question.RulesCarried || IsRulesContentKey(key);
+                }),
                 new ISteamMatchmakingRulesResponse.RulesFailedToRespond(() => Outcome(question, false, true)),
                 new ISteamMatchmakingRulesResponse.RulesRefreshComplete(() => Outcome(question, true, true)));
 
@@ -744,7 +767,17 @@ namespace MapMouseSelect
                 lobby.SetPingResult(server.m_nPing);
 
                 PingMeasured(id, server.m_nPing);
-                PingAnswered(id);
+
+                // A response with no usable number in it got the query nowhere, for the marker and for the
+                // column both.
+                if (PingLooksMeasured(server.m_nPing))
+                {
+                    PingAnswered(id);
+                }
+                else
+                {
+                    PingFailed(id);
+                }
 
                 // An answer here is proof the server is alive, so it goes back into the game's ping loop, the way
                 // the admit pass treats a rules answer; a server the filter hides stays out either way.
@@ -794,16 +827,21 @@ namespace MapMouseSelect
                 changed = true;
             }
 
-            changed = changed
-                || details.m_nPlayers != server.m_nPlayers
-                || details.m_nMaxPlayers != server.m_nMaxPlayers
-                || details.m_bPassword != server.m_bPassword;
+            // A copy with no room in it is the same failure wearing a server's shape the copy repair knows, so
+            // its counts and its password flag are read as missing rather than written over what is known.
+            if (server.m_nMaxPlayers > 0)
+            {
+                changed = changed
+                    || details.m_nPlayers != server.m_nPlayers
+                    || details.m_nMaxPlayers != server.m_nMaxPlayers
+                    || details.m_bPassword != server.m_bPassword;
 
-            details.m_nPlayers = server.m_nPlayers;
-            details.m_nMaxPlayers = server.m_nMaxPlayers;
-            details.m_bPassword = server.m_bPassword;
-            LastCounts[id.m_SteamID] = new Counts { Current = server.m_nPlayers, Max = server.m_nMaxPlayers };
-            LastLocked[id.m_SteamID] = server.m_bPassword;
+                details.m_nPlayers = server.m_nPlayers;
+                details.m_nMaxPlayers = server.m_nMaxPlayers;
+                details.m_bPassword = server.m_bPassword;
+                LastCounts[id.m_SteamID] = new Counts { Current = server.m_nPlayers, Max = server.m_nMaxPlayers };
+                LastLocked[id.m_SteamID] = server.m_bPassword;
+            }
 
             // A row keeps the values it was built with, so it is shown again to take the new ones, and only when
             // an answer actually changed one: most answers repeat what the row already says.
@@ -826,8 +864,10 @@ namespace MapMouseSelect
                 question.RulesAnswered = answered;
 
                 // The mission cell's marker follows the rules half the way the ping column's follows the other.
+                // A response that carried nothing real is an answer where nothing useful came back, so the
+                // marker reads it as no answer.
                 var id = IdOf(question.Lobby);
-                if (answered)
+                if (answered && question.RulesCarried)
                 {
                     RulesAnswered(id);
                 }
@@ -979,6 +1019,39 @@ namespace MapMouseSelect
         private static Dictionary<string, string> RulesOf(ServerLobbyInstance lobby)
         {
             return RulesField != null ? RulesField.GetValue(lobby) as Dictionary<string, string> : null;
+        }
+
+        /// <summary>
+        /// Whether a rules answer said anything only a rules answer says: the mission, the map, the start time,
+        /// the description or the workshop id. Every refresh seeds a server's rules through SetDetails with the
+        /// password flag and the tags, so a response that brought none of these keys is one to read as no answer.
+        /// </summary>
+        internal static bool HasRulesContent(ServerLobbyInstance lobby)
+        {
+            var rules = RulesOf(lobby);
+            return rules != null
+                && (rules.ContainsKey("mission_name")
+                    || rules.ContainsKey("map_name")
+                    || rules.ContainsKey("start_time")
+                    || rules.ContainsKey("mission_workshop_id")
+                    || rules.ContainsKey("d0")
+                    || rules.ContainsKey("d1")
+                    || rules.ContainsKey("d2")
+                    || rules.ContainsKey("d3"));
+        }
+
+        /// <summary>The same question for a key as a rules response carries it, which is the short form: the
+        /// long form is what the client stores the key under once it reads it.</summary>
+        internal static bool IsRulesContentKey(string key)
+        {
+            return key == "mi"
+                || key == "ma"
+                || key == "s"
+                || key == "id"
+                || key == "d0"
+                || key == "d1"
+                || key == "d2"
+                || key == "d3";
         }
     }
 
@@ -2021,13 +2094,18 @@ namespace MapMouseSelect
         }
 
         [HarmonyPrefix]
-        private static void Prefix(object __instance)
+        private static void Prefix(object __instance, out bool __state)
         {
+            __state = false;
             try
             {
-                if (LobbyField != null)
+                var lobby = LobbyField != null ? LobbyField.GetValue(__instance) as ServerLobbyInstance : null;
+                if (lobby != null)
                 {
-                    ServerBrowser.Restore(LobbyField.GetValue(__instance) as ServerLobbyInstance);
+                    // Read the answer's own keys before Restore fills the gaps from the last good answer, so
+                    // an answer that carried nothing reads as nothing here too.
+                    __state = ServerBrowser.HasRulesContent(lobby);
+                    ServerBrowser.Restore(lobby);
                 }
             }
             catch (Exception e)
@@ -2037,17 +2115,27 @@ namespace MapMouseSelect
         }
 
         [HarmonyPostfix]
-        private static void Postfix(object __instance)
+        private static void Postfix(object __instance, bool __state)
         {
             try
             {
                 var lobby = LobbyField != null ? LobbyField.GetValue(__instance) as ServerLobbyInstance : null;
                 ServerBrowser.Remember(lobby);
 
-                // The mission cell's marker reads this query's cycle too.
+                // The mission cell's marker reads this query's cycle too. A response that carried nothing
+                // real is an answer where nothing useful came back, so the marker reads it as no answer.
                 if (Plugin.MarkStaleServers.Value)
                 {
-                    ServerBrowser.RulesAnswered(ServerBrowser.IdOf(lobby));
+                    var id = ServerBrowser.IdOf(lobby);
+                    if (__state)
+                    {
+                        ServerBrowser.RulesAnswered(id);
+                    }
+                    else
+                    {
+                        ServerBrowser.RulesFailed(id);
+                    }
+
                     StaleRowPatch.Repaint(lobby);
                 }
             }
@@ -2149,7 +2237,17 @@ namespace MapMouseSelect
                     return;
                 }
 
-                ServerBrowser.PingAnswered(id);
+                // A response with no usable number in it got the query nowhere, so the marker reads it the
+                // same as a query that came back with nothing.
+                if (ServerBrowser.PingLooksMeasured(server.m_nPing))
+                {
+                    ServerBrowser.PingAnswered(id);
+                }
+                else
+                {
+                    ServerBrowser.PingFailed(id);
+                }
+
                 StaleRowPatch.Repaint(lobby);
             }
             catch (Exception e)

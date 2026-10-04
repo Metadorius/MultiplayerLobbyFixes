@@ -16,10 +16,10 @@ namespace MapMouseSelect
     /// things a rules answer carries.
     ///
     /// The glyph follows the query cycle. While a query is out the row shows a pulsing sync icon, so a run of them
-    /// reads as the browser working through the list. When a query comes back with nothing, the row shows the
-    /// warning triangle until one is answered; the servers the ping loop never asks, the unreachable ones listed
-    /// from the master list and the ones whose rules never answered, keep the triangle too. An answered query
-    /// leaves the row bare.
+    /// reads as the browser working through the list. When a query comes back with nothing useful, the row shows
+    /// the warning triangle until one is answered; the servers the ping loop never asks, the unreachable ones
+    /// listed from the master list and the ones whose rules never answered, keep the triangle too. An answered
+    /// query leaves the row bare.
     ///
     /// Vanilla never repaints a row when a ping fails, so the state is pushed through the query callbacks, which
     /// repaint the row through Repaint, and the pulse is stepped from the list's per-frame hook over in
