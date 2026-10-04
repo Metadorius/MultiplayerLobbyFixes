@@ -33,7 +33,6 @@ Please note that most of the changes only apply to *dedicated servers*, as that'
 - Queries are throttled by default to not hammer the servers or Steam.
   - When enabled, one query per frame max. is going out, 0ms delay corresponds to that.
   - 5ms is the default minimal cooldown.
-- Verbose logging writes a line per pass, not per query: the old lines cost a refresh press close to a second of frame time.
 - Servers listed because Steam's master list could not reach them are held out of the game's ping loop, which would otherwise ask those silent hosts again on every pass and hold a socket per attempt until the client's socket set runs out and later refreshes come back nearly empty; one of them answering anything, or a master list that reaches it, puts it back in the loop.
 - `Join Game` from Steam (and CLI) now properly works in all cases:
   - the redundant queries/checks were removed or are skipped if they do some miniscule use (in future may be skipped completely), actually joining the game is the first priority, which makes it work for servers better,
@@ -41,7 +40,6 @@ Please note that most of the changes only apply to *dedicated servers*, as that'
   - fixed `Join Game` not working from desktop because of `+join_lobby` being passed instead of `-joinLobby` (unsure if some mod issue or vanilla),
   - implemented `Join Game` support from when you're already in Nuclear Option (the game had no handling for this whatsoever apparently), with full "leave current screen safely" handling by the game;
 - A join that fails outside the server browser (a Steam invite, the launch argument) now shows why, "Server full" and the rest, instead of leaving the join overlay at "Connecting via Steam"; the game shows those reasons only from inside the browser.
-  - The reason is shown once: the copy the game prepares for its own main menu is consumed, so it can't pop up a second time there.
   - A join whose lobby data Steam never sends is given up on with the game's own "Lobby no longer exists or Steam is unavailable", not waited on forever.
 - Ping queries no longer discard every other status info piece (like current player count) and properly update them.
 - Changed lobby info now doesn't get stuck on the same position and is sorted correctly.
