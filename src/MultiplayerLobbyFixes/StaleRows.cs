@@ -264,8 +264,10 @@ namespace MapMouseSelect
         {
             try
             {
+                var at = PerfProbe.Now;
                 row.UpdatePing();
                 DrawMission(row);
+                PerfProbe.Add(PerfProbe.Paint, at);
             }
             catch (Exception e)
             {
