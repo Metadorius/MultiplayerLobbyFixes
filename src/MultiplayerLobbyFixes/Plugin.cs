@@ -87,16 +87,15 @@ namespace MapMouseSelect
                 + "and the ping, without touching the rest of the list. Two queries per press.");
 
             ThrottleQueries = Config.Bind("Server browser", "ThrottleQueries", true,
-                "Send the per-server rules queries and pings through the spacing queue instead of letting them all "
-                + "go out at once, the game's own ping loop included. The queue sends at most one query a frame; "
-                + "with this off every query goes out immediately.");
+                "Hold the game's per-server queries in a queue and start them one at a time, instead of letting a "
+                + "refresh start them all at once; the game's own ping loop waits in the queue too. A query the "
+                + "game cancels while it waits is dropped. With this off every query starts at once.");
 
             QuerySpacingMs = Config.Bind("Server browser", "QuerySpacingMs", 5f,
-                "Milliseconds between the per-server queries the browser fires, its rules queries and its pings, "
-                + "so a refresh spreads out instead of hitting Steam with everything at once. The queue sends at "
-                + "most one query a frame however small this is, so 0 means one query a frame; a query over the "
-                + "budget waits its turn rather than being dropped. The ThrottleQueries toggle turns the queue off "
-                + "altogether.");
+                "Milliseconds between the queries the queue starts, which spreads a refresh's burst out. A query "
+                + "that arrives sooner waits its turn rather than being dropped. The queue starts at most one "
+                + "query a frame however small this is, so 0 means one query a frame. The ThrottleQueries toggle "
+                + "turns the queue off altogether.");
 
             VerboseLogging = Config.Bind("Diagnostics", "VerboseLogging", true,
                 "Log what the browser and the Steam joins are doing.");
@@ -171,10 +170,11 @@ namespace MapMouseSelect
             var pingQueryType = AccessTools.Inner(typeof(SteamLobby), "PingQuery");
             var pingAskInfo = PatchInfo(AccessTools.Method(pingQueryType, "Run"));
             var pingFailureInfo = PatchInfo(AccessTools.Method(pingQueryType, "ServerFailedToRespond"));
-            var rulesQueueInfo = PatchInfo(AccessTools.Method(
-                typeof(Steamworks.SteamMatchmakingServers), "ServerRules"));
-            var pingQueueInfo = PatchInfo(AccessTools.Method(
-                typeof(Steamworks.SteamMatchmakingServers), "PingServer"));
+            var rulesCancelInfo = PatchInfo(AccessTools.Method(
+                AccessTools.Inner(typeof(SteamLobby), "SearchQuery"), "Cancel"));
+            var queryCancelInfo = PatchInfo(AccessTools.Method(pingQueryType, "Cancel"));
+            var requestCancelInfo = PatchInfo(AccessTools.Method(
+                AccessTools.Inner(typeof(SteamLobby), "ServerListRequest"), "Cancel"));
             var pingHoldInfo = PatchInfo(AccessTools.Method(typeof(SteamLobby), "CheckPingServers"));
             var rulesAskInfo = PatchInfo(AccessTools.Method(
                 AccessTools.Inner(typeof(SteamLobby), "SearchQuery"), "Run"));
@@ -207,7 +207,9 @@ namespace MapMouseSelect
                 + ", ping asks=" + pingAskInfo
                 + ", ping failures=" + pingFailureInfo
                 + ", rules asks=" + rulesAskInfo
-                + ", spaced queries=" + rulesQueueInfo + "/" + pingQueueInfo
+                + ", queued queries=" + rulesAskInfo + "/" + pingAskInfo
+                + ", query cancels=" + rulesCancelInfo + "/" + queryCancelInfo
+                + ", request cancels=" + requestCancelInfo
                 + ", ping holds=" + pingHoldInfo
                 + ", join asks=" + joinAskInfo
                 + ", join attempts=" + joinAttemptInfo

@@ -728,19 +728,13 @@ namespace MapMouseSelect
 
             if (immediate)
             {
-                // A press goes out on the spot, past the query queue: the player is waiting on it.
                 Plugin.Verbose("Asked " + lobby.LobbyNameSanitized + " (" + id + ") for its rules and its details.");
-                QueryThrottle.Now(() =>
-                    SteamMatchmakingServers.ServerRules(address.GetIP(), address.GetQueryPort(), question.Rules));
-                QueryThrottle.Now(() =>
-                    SteamMatchmakingServers.PingServer(address.GetIP(), address.GetQueryPort(), question.Details));
             }
-            else
-            {
-                // The whole-list refresh takes its turn in the queue with everything else.
-                SteamMatchmakingServers.ServerRules(address.GetIP(), address.GetQueryPort(), question.Rules);
-                SteamMatchmakingServers.PingServer(address.GetIP(), address.GetQueryPort(), question.Details);
-            }
+
+            // The mod's own asks go out on the spot: the queue holds the game's queries, and the whole-list
+            // pass paces itself, so nothing here waits for a turn.
+            SteamMatchmakingServers.ServerRules(address.GetIP(), address.GetQueryPort(), question.Rules);
+            SteamMatchmakingServers.PingServer(address.GetIP(), address.GetQueryPort(), question.Details);
 
             return true;
         }
@@ -1239,9 +1233,8 @@ namespace MapMouseSelect
                 new ISteamMatchmakingRulesResponse.RulesFailedToRespond(() => GiveUpRescue(rescue)),
                 new ISteamMatchmakingRulesResponse.RulesRefreshComplete(() => RescuedRules(rescue)));
 
-            // A join is a player waiting on the answer, so the query goes out past the queue.
-            QueryThrottle.Now(() =>
-                SteamMatchmakingServers.ServerRules(address.GetIP(), address.GetQueryPort(), rescue.Rules));
+            // A join is a player waiting on the answer, so the query goes out on the spot.
+            SteamMatchmakingServers.ServerRules(address.GetIP(), address.GetQueryPort(), rescue.Rules);
 
             return true;
         }

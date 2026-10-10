@@ -1,43 +1,65 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using HarmonyLib;
-using Steamworks;
+using NuclearOption.Networking.Lobbies;
 using UnityEngine;
 
 namespace MapMouseSelect
 {
     /// <summary>
-    /// Spaces the browser's per-server queries out instead of letting a refresh fire them in one burst.
+    /// Holds the game's per-server queries in a queue and starts them one at a time, instead of letting a
+    /// refresh start them all in one frame.
     ///
-    /// Every rules query and every ping in the game goes through SteamMatchmakingServers, so both calls are
-    /// fenced here: a query that arrives sooner than the configured spacing after the last one waits in a queue
-    /// instead of being dropped, and a pump owned by this mod issues what is waiting, at most one a frame and
-    /// no sooner than the spacing apart.
-    /// The callers get nothing back for a queued query and live with it: the game stores the handle only to
-    /// cancel it later, and the answers, which is all anyone reads, arrive normally.
+    /// The queue holds the game's own query objects, not the Steam calls: `SteamLobby.SearchQuery` and
+    /// `PingQuery` are deferred at their `Run`, which is the method that registers the query with its request and
+    /// stores the handle Steam hands back. Because the handle is stored when the query finally runs at its turn,
+    /// everything the game does with that handle keeps working, and no query is left without an owner.
     ///
-    /// The details window's own Refresh press goes out on the spot, past the queue, because a player is waiting
-    /// on it; everything else, the game's refreshes and its ping loop alike, takes its turn.
+    /// Two guards keep the queue honest. A `Cancel` on a query that is still waiting drops it, so a refresh that
+    /// replaces its request never starts a query nobody wants. And a request that is cancelled drops everything
+    /// still waiting for it, which the request's own cancel loop cannot reach, because a waiting query is not in
+    /// the request's list of running queries yet.
+    ///
+    /// A query the queue takes is skipped at its call site and started again by the pump, at most one a frame
+    /// and no sooner than the spacing apart. A query that arrives while nothing is waiting and the spacing has
+    /// passed starts on the spot, so the queue costs nothing in the common single-query case.
     /// </summary>
     internal static class QueryThrottle
     {
-        private static readonly Queue<KeyValuePair<string, Action>> Pending =
-            new Queue<KeyValuePair<string, Action>>();
+        /// <summary>How many queries may wait at once before the queue lets the rest start unspaced.</summary>
+        private const int Cap = 2000;
+
+        /// <summary>The queries waiting for their turn, oldest first.</summary>
+        private static readonly Queue<object> Pending = new Queue<object>();
+
+        /// <summary>The queries still waiting, for membership and for the drop when one is cancelled.</summary>
+        private static readonly HashSet<object> Waiting = new HashSet<object>();
+
+        private static readonly Dictionary<Type, MethodInfo> RunMethods = new Dictionary<Type, MethodInfo>();
+
+        /// <summary>The request a rules query belongs to, for the drop when that request is cancelled.</summary>
+        private static readonly FieldInfo RequestField = AccessTools.Field(
+            AccessTools.Inner(typeof(SteamLobby), "SearchQuery"), "listRequest");
+
+        /// <summary>The ping list a ping query belongs to, which is the list its request holds.</summary>
+        private static readonly FieldInfo QueriesField = AccessTools.Field(
+            AccessTools.Inner(typeof(SteamLobby), "PingQuery"), "runningQueries");
 
         private static float _nextAt;
 
-        /// <summary>The frame a query last went out in, so a spacing of 0 still means one query a frame.</summary>
+        /// <summary>The frame a query last started in, so a spacing of 0 still means one query a frame.</summary>
         private static int _issuedFrame = -1;
 
-        /// <summary>Set while a queued query is being issued, so it is not queued again on its way out.</summary>
+        /// <summary>Set while a waiting query is being started, so it is not queued again on its way out.</summary>
         private static bool _issuing;
 
         private static GameObject _pump;
 
         /// <summary>
-        /// Whether a query may go out now. False means it was queued, and the caller's call must be skipped.
+        /// Whether a query may start now. False means it waits in the queue, and the caller's Run is skipped.
         /// </summary>
-        internal static bool TryIssue(string what, Action call)
+        internal static bool TryDefer(object query, string what)
         {
             if (_issuing || !Plugin.ThrottleQueries.Value)
             {
@@ -45,25 +67,75 @@ namespace MapMouseSelect
             }
 
             var now = Time.time;
-            if (Pending.Count == 0 && now >= _nextAt && Time.frameCount != _issuedFrame)
+            if (Waiting.Count == 0 && now >= _nextAt && Time.frameCount != _issuedFrame)
             {
                 _issuedFrame = Time.frameCount;
                 _nextAt = now + Plugin.QuerySpacingMs.Value / 1000f;
                 return true;
             }
 
-            if (!PumpExists())
+            if (Waiting.Count >= Cap || !PumpExists())
             {
-                // Without the pump the queue would never move, so this query goes out unspaced instead.
-                Plugin.Verbose("Sending a " + what + " query unspaced, no pump.");
+                // A query the game asked for is never dropped: over the cap, or without a pump, it starts now.
+                Plugin.Verbose("Starting a " + what + " query unspaced.");
                 return true;
             }
 
-            Pending.Enqueue(new KeyValuePair<string, Action>(what, call));
+            Pending.Enqueue(query);
+            Waiting.Add(query);
             return false;
         }
 
-        /// <summary>Issues one queued query once the spacing has passed; the pump calls it every frame, so at most one query a frame goes out.</summary>
+        /// <summary>
+        /// Whether the game may cancel this query. False means it was still waiting, so it had no handle and
+        /// there is nothing to cancel: it is dropped from the queue instead.
+        /// </summary>
+        internal static bool TryCancel(object query)
+        {
+            return !Waiting.Remove(query);
+        }
+
+        /// <summary>
+        /// Drops everything still waiting for a request that was just cancelled. The request's own cancel loop
+        /// cannot reach a waiting query, because a query registers itself with its request only when it runs.
+        /// </summary>
+        internal static void DropFor(object listRequest, object runningQueries)
+        {
+            if (Waiting.Count == 0)
+            {
+                return;
+            }
+
+            List<object> dropped = null;
+            foreach (var query in Waiting)
+            {
+                var mine = RequestField != null && ReferenceEquals(RequestField.GetValue(query), listRequest);
+                if (!mine && QueriesField != null)
+                {
+                    mine = ReferenceEquals(QueriesField.GetValue(query), runningQueries);
+                }
+
+                if (mine)
+                {
+                    dropped = dropped ?? new List<object>();
+                    dropped.Add(query);
+                }
+            }
+
+            if (dropped == null)
+            {
+                return;
+            }
+
+            foreach (var query in dropped)
+            {
+                Waiting.Remove(query);
+            }
+
+            Plugin.Verbose("Dropped " + dropped.Count + " queries still waiting for a cancelled request.");
+        }
+
+        /// <summary>Starts one waiting query once the spacing has passed; the pump calls it every frame.</summary>
         internal static void Drain()
         {
             if (Pending.Count == 0)
@@ -71,38 +143,68 @@ namespace MapMouseSelect
                 return;
             }
 
-            var now = Time.time;
-            if (now < _nextAt || Time.frameCount == _issuedFrame)
+            if (!Plugin.ThrottleQueries.Value)
             {
+                // The toggle went off with queries still waiting: none of them should sit in here.
+                while (Pending.Count > 0)
+                {
+                    var flushed = Pending.Dequeue();
+                    if (Waiting.Remove(flushed))
+                    {
+                        Start(flushed);
+                    }
+                }
+
                 return;
             }
 
-            var next = Pending.Dequeue();
-            _issuedFrame = Time.frameCount;
-            _nextAt = now + Plugin.QuerySpacingMs.Value / 1000f;
+            while (Pending.Count > 0)
+            {
+                var now = Time.time;
+                if (now < _nextAt || Time.frameCount == _issuedFrame)
+                {
+                    return;
+                }
 
-            _issuing = true;
-            try
-            {
-                next.Value();
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogError("Could not issue a queued server query: " + e);
-            }
-            finally
-            {
-                _issuing = false;
+                var next = Pending.Dequeue();
+                if (!Waiting.Remove(next))
+                {
+                    // Cancelled while it waited. It cost nothing, so the next one may still go out this frame.
+                    continue;
+                }
+
+                _issuedFrame = Time.frameCount;
+                _nextAt = now + Plugin.QuerySpacingMs.Value / 1000f;
+                Start(next);
             }
         }
 
-        /// <summary>Sends a call past the queue, for the queries a player is actively waiting on.</summary>
-        internal static void Now(Action call)
+        /// <summary>Runs the query object's own Run, which is what registers it and stores its handle.</summary>
+        private static void Start(object query)
         {
+            var type = query.GetType();
+
+            MethodInfo run;
+            if (!RunMethods.TryGetValue(type, out run))
+            {
+                run = AccessTools.Method(type, "Run");
+                RunMethods[type] = run;
+            }
+
+            if (run == null)
+            {
+                Plugin.Log.LogError("A queued query has no Run: " + type.FullName);
+                return;
+            }
+
             _issuing = true;
             try
             {
-                call();
+                run.Invoke(query, null);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogError("Could not start a queued server query: " + e);
             }
             finally
             {
@@ -142,29 +244,90 @@ namespace MapMouseSelect
         }
     }
 
-    /// <summary>Sends the game's rules queries, and this mod's, through the throttle.</summary>
-    [HarmonyPatch(typeof(SteamMatchmakingServers), nameof(SteamMatchmakingServers.ServerRules))]
-    internal static class ServerRulesQueuePatch
+    /// <summary>Holds the game's rules queries in the queue, at the point their own object starts them.</summary>
+    [HarmonyPatch]
+    internal static class SearchQueryRunPatch
     {
-        [HarmonyPrefix]
-        private static bool Prefix(
-            uint unIP, ushort usPort, ISteamMatchmakingRulesResponse pRequestServersResponse)
+        [HarmonyTargetMethod]
+        private static MethodBase Target()
         {
-            return QueryThrottle.TryIssue(
-                "rules", () => SteamMatchmakingServers.ServerRules(unIP, usPort, pRequestServersResponse));
+            return AccessTools.Method(AccessTools.Inner(typeof(SteamLobby), "SearchQuery"), "Run");
+        }
+
+        [HarmonyPrefix]
+        private static bool Prefix(object __instance)
+        {
+            return QueryThrottle.TryDefer(__instance, "rules");
         }
     }
 
-    /// <summary>Sends the game's pings, and this mod's, through the throttle.</summary>
-    [HarmonyPatch(typeof(SteamMatchmakingServers), nameof(SteamMatchmakingServers.PingServer))]
-    internal static class ServerPingQueuePatch
+    /// <summary>The same for the queries the game's ping loop starts.</summary>
+    [HarmonyPatch]
+    internal static class PingQueryRunPatch
     {
-        [HarmonyPrefix]
-        private static bool Prefix(
-            uint unIP, ushort usPort, ISteamMatchmakingPingResponse pRequestServersResponse)
+        [HarmonyTargetMethod]
+        private static MethodBase Target()
         {
-            return QueryThrottle.TryIssue(
-                "ping", () => SteamMatchmakingServers.PingServer(unIP, usPort, pRequestServersResponse));
+            return AccessTools.Method(AccessTools.Inner(typeof(SteamLobby), "PingQuery"), "Run");
+        }
+
+        [HarmonyPrefix]
+        private static bool Prefix(object __instance)
+        {
+            return QueryThrottle.TryDefer(__instance, "ping");
+        }
+    }
+
+    /// <summary>
+    /// Drops a query the game cancels while it is still waiting, and lets one that has started be cancelled as
+    /// usual, which is what releases its handle and its socket.
+    /// </summary>
+    [HarmonyPatch]
+    internal static class QueryCancelPatch
+    {
+        [HarmonyTargetMethods]
+        private static IEnumerable<MethodBase> Targets()
+        {
+            var rules = AccessTools.Method(AccessTools.Inner(typeof(SteamLobby), "SearchQuery"), "Cancel");
+            if (rules != null)
+            {
+                yield return rules;
+            }
+
+            var ping = AccessTools.Method(AccessTools.Inner(typeof(SteamLobby), "PingQuery"), "Cancel");
+            if (ping != null)
+            {
+                yield return ping;
+            }
+        }
+
+        [HarmonyPrefix]
+        private static bool Prefix(object __instance)
+        {
+            return QueryThrottle.TryCancel(__instance);
+        }
+    }
+
+    /// <summary>
+    /// Drops everything still waiting for a request that is being cancelled. The request's own cancel loop only
+    /// sees the queries that already ran, so the waiting ones need this to not start after their request is gone.
+    /// </summary>
+    [HarmonyPatch]
+    internal static class RequestCancelPatch
+    {
+        private static readonly FieldInfo QueriesField = AccessTools.Field(
+            AccessTools.Inner(typeof(SteamLobby), "ServerListRequest"), "RunningQueries");
+
+        [HarmonyTargetMethod]
+        private static MethodBase Target()
+        {
+            return AccessTools.Method(AccessTools.Inner(typeof(SteamLobby), "ServerListRequest"), "Cancel");
+        }
+
+        [HarmonyPrefix]
+        private static void Prefix(object __instance)
+        {
+            QueryThrottle.DropFor(__instance, QueriesField != null ? QueriesField.GetValue(__instance) : null);
         }
     }
 }
