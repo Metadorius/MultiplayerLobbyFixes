@@ -912,17 +912,20 @@ namespace MapMouseSelect
         }
 
         /// <summary>
-        /// Asks every server the browser holds in hand for its rules and its details again.
+        /// Picks the servers a refresh press should ask again: the ones whose answers are missing or old, and
+        /// which the game's own request is not asking for right now.
         ///
-        /// The browser's own refresh rests on Steam's per-server probes, which answer on the first refresh of a
-        /// session and then come back failed as one batch, and a refresh like that queries nothing and adds nothing,
-        /// so the mission column goes quiet. These are the two queries the details window's button spends on one
-        /// server, spent on the whole list instead and spaced by the query queue, which makes a press update every
-        /// row it shows. The servers the master list brings in a moment later are the game's own to query; the
-        /// servers the filter hides are left alone, and so is one asked within the last few seconds.
+        /// The game's request runs on the same press and spends a rules query on every server it brings in, so
+        /// this pass fills only the gaps that request leaves: a server that already has both answers and got them
+        /// recently is left alone, and so is one the request is asking at this moment. A screen opening is not a
+        /// press and picks nothing. The asks go out a few per frame from RefreshListedTick, so one press never
+        /// starts every query in one frame.
         /// </summary>
         internal static void RefreshListed()
         {
+            ToAsk.Clear();
+            _askAt = 0;
+
             var manager = SteamLobby.instance;
             var lobbies = manager != null && LobbiesField != null
                 ? LobbiesField.GetValue(manager) as Dictionary<CSteamID, LobbyInstance>
@@ -933,27 +936,138 @@ namespace MapMouseSelect
             }
 
             var filter = LocalFilters.Current();
-            var asked = 0;
+
+            var asking = new HashSet<ulong>();
+            CollectAsking(asking);
+
             foreach (var entry in lobbies.Values)
             {
                 var lobby = entry as ServerLobbyInstance;
-                if (lobby == null || !IdOf(lobby).IsValid())
+                if (lobby == null)
                 {
                     continue;
                 }
 
-                if (!LocalFilters.Passes(lobby, filter))
+                var id = IdOf(lobby);
+                if (!id.IsValid() || asking.Contains(id.m_SteamID))
                 {
                     continue;
                 }
 
-                if (RefreshServer(lobby, null, false))
+                if (!LocalFilters.Passes(lobby, filter) || Fresh(lobby))
                 {
-                    asked++;
+                    continue;
                 }
+
+                ToAsk.Add(lobby);
             }
 
-            Plugin.Verbose("Asked " + asked + " of the servers in hand for their rules and their details again.");
+            if (ToAsk.Count > 0)
+            {
+                Plugin.Verbose(
+                    "A refresh press picked " + ToAsk.Count + " of the " + lobbies.Count
+                    + " servers in hand to ask again.");
+            }
+        }
+
+        /// <summary>Asks the servers the press picked, a few a frame, and stops once the pick is done.</summary>
+        internal static void RefreshListedTick()
+        {
+            if (_askAt >= ToAsk.Count)
+            {
+                return;
+            }
+
+            for (var i = 0; i < AskPerFrame && _askAt < ToAsk.Count; i++, _askAt++)
+            {
+                RefreshServer(ToAsk[_askAt], null, false);
+            }
+
+            if (_askAt >= ToAsk.Count)
+            {
+                Plugin.Verbose("The refresh press finished asking the servers it picked.");
+            }
+        }
+
+        /// <summary>How many of the picked servers a refresh pass asks per frame.</summary>
+        private const int AskPerFrame = 2;
+
+        /// <summary>How long a pair of answers counts as fresh, so that a press can skip the server.</summary>
+        private const float FreshFor = 300f;
+
+        /// <summary>The servers the last press picked, and how far through them the pass is.</summary>
+        private static readonly List<ServerLobbyInstance> ToAsk = new List<ServerLobbyInstance>();
+
+        private static int _askAt;
+
+        private static readonly FieldInfo RequestField = AccessTools.Field(typeof(SteamLobby), "serverListRequest");
+
+        private static readonly FieldInfo RunningField = AccessTools.Field(
+            AccessTools.Inner(typeof(SteamLobby), "ServerListRequest"), "RunningQueries");
+
+        private static readonly FieldInfo SearchLobbyField = AccessTools.Field(
+            AccessTools.Inner(typeof(SteamLobby), "SearchQuery"), "lobby");
+
+        private static readonly FieldInfo PingLobbyField = AccessTools.Field(
+            AccessTools.Inner(typeof(SteamLobby), "PingQuery"), "lobby");
+
+        /// <summary>Whether the server's two answers are in and young enough to leave it alone this pass.</summary>
+        private static bool Fresh(ServerLobbyInstance lobby)
+        {
+            var id = IdOf(lobby);
+            if (!id.IsValid() || !HasRulesContent(lobby) || !HasPing(id))
+            {
+                return false;
+            }
+
+            float askedAt;
+            return RequestedAt.TryGetValue(id.m_SteamID, out askedAt) && Time.time - askedAt <= FreshFor;
+        }
+
+        /// <summary>Collects the ids the game's request is asking right now, its rules queries and pings alike.</summary>
+        private static void CollectAsking(HashSet<ulong> into)
+        {
+            try
+            {
+                var manager = SteamLobby.instance;
+                var request = manager != null && RequestField != null ? RequestField.GetValue(manager) : null;
+                var running = request != null && RunningField != null
+                    ? RunningField.GetValue(request) as System.Collections.IEnumerable
+                    : null;
+                if (running == null)
+                {
+                    return;
+                }
+
+                foreach (var query in running)
+                {
+                    if (query == null)
+                    {
+                        continue;
+                    }
+
+                    var field = SearchLobbyField != null && SearchLobbyField.DeclaringType.IsInstanceOfType(query)
+                        ? SearchLobbyField
+                        : PingLobbyField != null && PingLobbyField.DeclaringType.IsInstanceOfType(query)
+                            ? PingLobbyField
+                            : null;
+                    if (field == null)
+                    {
+                        continue;
+                    }
+
+                    var lobby = field.GetValue(query) as ServerLobbyInstance;
+                    var id = lobby != null ? IdOf(lobby) : default(CSteamID);
+                    if (id.IsValid())
+                    {
+                        into.Add(id.m_SteamID);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Verbose("Could not read the request's running queries: " + e.Message);
+            }
         }
 
         /// <summary>Finishes a refresh that is over, either because both answers came or because it was given up on.</summary>
@@ -2894,6 +3008,7 @@ namespace MapMouseSelect
         {
             StaleRowPatch.Tick(__instance);
             ServerBrowser.RefreshTick();
+            ServerBrowser.RefreshListedTick();
             ServerBrowser.Admit(__instance);
 
             var waiting = _waiting;

@@ -71,15 +71,28 @@ namespace MapMouseSelect
         /// <summary>The browser in use, for the readers that do not have it at hand.</summary>
         private static LobbyList _list;
 
+        /// <summary>What a GetListOfLobbies call is: the screen opening, a moved toggle, or the Refresh button.</summary>
+        internal enum FilterCall
+        {
+            /// <summary>The list's own Start asks first, and that call is always a real request.</summary>
+            First,
+
+            /// <summary>A toggle moved, so the list is filtered from what is in hand instead of requeried.</summary>
+            Toggle,
+
+            /// <summary>The Refresh button, the one call the mod's own refresh pass rides along with.</summary>
+            Refresh,
+        }
+
         /// <summary>
-        /// Whether this call is a toggle having moved rather than the Refresh button or a screen opening: both of
-        /// those build the filter the list is already using, while a toggle builds a different one.
+        /// Sorts this call into the three kinds. The Refresh button and the screen opening both build the filter
+        /// the list already uses, while a moved toggle builds a different one.
         /// </summary>
-        internal static bool Toggled(LobbyList list)
+        internal static FilterCall Classify(LobbyList list)
         {
             if (list == null || ActiveField == null)
             {
-                return false;
+                return FilterCall.First;
             }
 
             _list = list;
@@ -88,12 +101,12 @@ namespace MapMouseSelect
             {
                 // The list's own Start asks first, and that call is always a real one.
                 _seen = list;
-                return false;
+                return FilterCall.First;
             }
 
             var value = ActiveField.GetValue(list);
             var active = value is LobbySearchFilter filter ? filter : default(LobbySearchFilter);
-            return !Same(FilterOf(list), active);
+            return Same(FilterOf(list), active) ? FilterCall.Refresh : FilterCall.Toggle;
         }
 
         /// <summary>
@@ -337,10 +350,18 @@ namespace MapMouseSelect
         {
             try
             {
-                if (LocalFilters.Toggled(__instance))
+                var call = LocalFilters.Classify(__instance);
+                if (call == LocalFilters.FilterCall.Toggle)
                 {
                     LocalFilters.Apply(__instance);
                     return false;
+                }
+
+                if (call == LocalFilters.FilterCall.Refresh)
+                {
+                    // A press: the game's own request runs below, and the pass fills the gaps it leaves. A
+                    // screen opening is not a press, and picks nothing.
+                    ServerBrowser.RefreshListed();
                 }
             }
             catch (Exception e)
@@ -349,9 +370,6 @@ namespace MapMouseSelect
                 Plugin.Log.LogError("Could not filter the list without a refresh: " + e);
             }
 
-            // The vanilla refresh runs below and asks little to nothing after the first one of a session, so the
-            // servers already in hand are asked again here, at once; the master list's arrivals are its own to ask.
-            ServerBrowser.RefreshListed();
             return true;
         }
     }
