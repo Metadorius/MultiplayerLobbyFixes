@@ -7,6 +7,7 @@ using Mirage;
 using NuclearOption.Networking;
 using NuclearOption.Networking.Lobbies;
 using NuclearOption.SceneLoading;
+using NuclearOption.UI;
 using Steamworks;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -637,6 +638,15 @@ namespace MapMouseSelect
             internal ISteamMatchmakingRulesResponse Rules;
 
             internal ISteamMatchmakingPingResponse Details;
+
+            /// <summary>The two handles this question's queries came back with, so both can be cancelled.</summary>
+            internal HServerQuery RulesHandle;
+
+            internal HServerQuery PingHandle;
+
+            internal bool RulesAsked;
+
+            internal bool PingAsked;
         }
 
         private static readonly Dictionary<ulong, Question> Questioned = new Dictionary<ulong, Question>();
@@ -718,6 +728,14 @@ namespace MapMouseSelect
                 new ISteamMatchmakingPingResponse.ServerFailedToRespond(() => PingFailure(question)));
 
             RequestedAt[id] = Time.time;
+
+            Question previous;
+            if (Questioned.TryGetValue(id, out previous))
+            {
+                // This ask replaces one that is still out: the older pair of queries stops here.
+                CancelQueries(previous);
+            }
+
             Questioned[id] = question;
 
             // Both markers follow this query as well: the asks go out now and settle in Details, PingFailure or
@@ -732,9 +750,14 @@ namespace MapMouseSelect
             }
 
             // The mod's own asks go out on the spot: the queue holds the game's queries, and the whole-list
-            // pass paces itself, so nothing here waits for a turn.
-            SteamMatchmakingServers.ServerRules(address.GetIP(), address.GetQueryPort(), question.Rules);
-            SteamMatchmakingServers.PingServer(address.GetIP(), address.GetQueryPort(), question.Details);
+            // pass paces itself, so nothing here waits for a turn. Both handles are kept, because nothing else
+            // holds them: a refresh that is replaced, given up on, or closed cancels its own two queries.
+            question.RulesHandle = SteamMatchmakingServers.ServerRules(
+                address.GetIP(), address.GetQueryPort(), question.Rules);
+            question.RulesAsked = true;
+            question.PingHandle = SteamMatchmakingServers.PingServer(
+                address.GetIP(), address.GetQueryPort(), question.Details);
+            question.PingAsked = true;
 
             return true;
         }
@@ -981,6 +1004,9 @@ namespace MapMouseSelect
                 return;
             }
 
+            // Both answers are in, or the refresh was given up on: either way, its two queries are done with.
+            CancelQueries(question);
+
             // Give-ups are reported in one line by RefreshTick, where a big press makes a wave of them; only the
             // details window's own ask keeps a line per refresh.
             if (settled && !question.RulesAnswered && question.Updated != null)
@@ -1002,6 +1028,57 @@ namespace MapMouseSelect
             {
                 question.Updated();
             }
+        }
+
+        /// <summary>
+        /// Cancels the two queries a question asked. Nothing else holds them, so without this a refresh that is
+        /// replaced or given up on leaves its rules and ping queries running on Steam's side.
+        /// </summary>
+        private static void CancelQueries(Question question)
+        {
+            if (question.RulesAsked)
+            {
+                question.RulesAsked = false;
+                CancelQuery(question.RulesHandle);
+            }
+
+            if (question.PingAsked)
+            {
+                question.PingAsked = false;
+                CancelQuery(question.PingHandle);
+            }
+        }
+
+        private static void CancelQuery(HServerQuery handle)
+        {
+            try
+            {
+                SteamMatchmakingServers.CancelServerQuery(handle);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogError("Could not cancel a server query: " + e);
+            }
+        }
+
+        /// <summary>
+        /// Drops the refresh the details window asked for, for when that window is closed while its queries are
+        /// still out. The two queries are cancelled and the question is forgotten, so nothing runs on behind a
+        /// window that is no longer open.
+        /// </summary>
+        internal static void CancelQuestionFor(ServerLobbyInstance lobby)
+        {
+            var id = IdOf(lobby);
+
+            Question question;
+            if (!id.IsValid() || !Questioned.TryGetValue(id.m_SteamID, out question))
+            {
+                return;
+            }
+
+            Questioned.Remove(id.m_SteamID);
+            CancelQueries(question);
+            Plugin.Verbose("The server details window closed; its refresh was dropped.");
         }
 
         internal static void Report(ServerLobbyInstance lobby, string why)
@@ -2916,6 +2993,33 @@ namespace MapMouseSelect
             if (shown > 0)
             {
                 Plugin.Verbose("Put " + shown + " servers from the last visit back in the list.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Cancels the queries a details-window refresh asked when that window closes. The player is no longer
+    /// waiting on those answers, so the queries should not keep running.
+    /// </summary>
+    [HarmonyPatch(typeof(LobbyDetailsModal), "Hide")]
+    internal static class DetailRefreshClosePatch
+    {
+        private static readonly FieldInfo LobbyField = AccessTools.Field(typeof(LobbyDetailsModal), "lobby");
+
+        [HarmonyPrefix]
+        private static void Prefix(LobbyDetailsModal __instance)
+        {
+            try
+            {
+                var lobby = LobbyField != null ? LobbyField.GetValue(__instance) as ServerLobbyInstance : null;
+                if (lobby != null)
+                {
+                    ServerBrowser.CancelQuestionFor(lobby);
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogError("Could not drop a details-window refresh: " + e);
             }
         }
     }
