@@ -1113,16 +1113,23 @@ namespace MapMouseSelect
         {
             var lobby = question.Lobby;
             var id = IdOf(lobby);
-            if (!id.IsValid() || !Questioned.Remove(id.m_SteamID))
+
+            Question current;
+            if (!id.IsValid() || !Questioned.TryGetValue(id.m_SteamID, out current)
+                || !ReferenceEquals(current, question))
             {
+                // A newer ask replaced this one and already took its place in the map: a late answer of this
+                // question must not take the replacement out with it.
                 return;
             }
+
+            Questioned.Remove(id.m_SteamID);
 
             // Both answers are in, or the refresh was given up on: either way, its two queries are done with.
             CancelQueries(question);
 
-            // Give-ups are reported in one line by RefreshTick, where a big press makes a wave of them; only the
-            // details window's own ask keeps a line per refresh.
+            // Give-ups are reported in one line by RefreshTick, where a press can make several at once; only
+            // the details window's own ask keeps a line per refresh.
             if (settled && !question.RulesAnswered && question.Updated != null)
             {
                 Plugin.Verbose("The refresh of " + lobby.LobbyNameSanitized + " got no rules answer.");
