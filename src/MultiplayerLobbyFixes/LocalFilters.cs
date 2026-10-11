@@ -121,6 +121,10 @@ namespace MultiplayerLobbyFixes
                 ActiveField.SetValue(list, filter);
             }
 
+            // The rows shown below are the ones this filter keeps, so the patch that keeps rows through a clear
+            // must read the next clear as a press rather than as this change arriving again.
+            LobbyListKeepRowsPatch.Remember(filter);
+
             Push(filter);
 
             ClearMethod?.Invoke(list, null);
@@ -140,6 +144,9 @@ namespace MultiplayerLobbyFixes
                 if (Passes(lobby, filter))
                 {
                     lobby.InList = true;
+
+                    // Shown here and now: a filter change is one visible step, and drawing every kept row is only
+                    // a few milliseconds of it, so there is nothing to gain by dripping them in over frames.
                     ServerBrowser.Announce(manager, lobby);
                     shown++;
                 }
@@ -348,6 +355,7 @@ namespace MultiplayerLobbyFixes
         [HarmonyPrefix]
         private static bool Prefix(LobbyList __instance)
         {
+            var mark = Cost.Mark();
             try
             {
                 var call = LocalFilters.Classify(__instance);
@@ -368,6 +376,10 @@ namespace MultiplayerLobbyFixes
             {
                 // The vanilla request still runs below, which is the recovery: it rebuilds the whole list.
                 Plugin.Log.LogError("Could not filter the list without a refresh: " + e);
+            }
+            finally
+            {
+                Cost.Add("press", mark);
             }
 
             return true;

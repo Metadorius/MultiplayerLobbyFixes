@@ -56,6 +56,9 @@ namespace MultiplayerLobbyFixes
         /// <summary>The game's two-arrows sync icon, the closest thing to a spinner in the icon set.</summary>
         private const string SpinnerIcon = "\ue86a";
 
+        /// <summary>What a row says while a refresh for it is queued and not yet asked.</summary>
+        private const string QueuedText = "Refresh queued, waiting its turn";
+
         /// <summary>The greys the sync icon pulses between while a query is out, and the pulse timing.</summary>
         private static readonly Color SpinnerDim = new Color32(0x53, 0x5b, 0x69, 0xff);
 
@@ -278,6 +281,16 @@ namespace MultiplayerLobbyFixes
                 + "><size=80%><font=MaterialSymbolsSharp>" + SpinnerIcon + "</font></size></color> ";
         }
 
+        /// <summary>
+        /// The same icon held still, at the pulse's bright end, for a refresh the pass has down for a row but has
+        /// not asked yet: the pulse is what says a query is out, so nothing pulsing reads as nothing happening yet.
+        /// </summary>
+        private static string StillSpinner()
+        {
+            return "<color=#" + ColorUtility.ToHtmlStringRGB(SpinnerBright)
+                + "><size=80%><font=MaterialSymbolsSharp>" + SpinnerIcon + "</font></size></color> ";
+        }
+
         /// <summary>The pulse as a handful of steps rather than per frame, so a repaint lands on each step only.</summary>
         private static int PulseStep()
         {
@@ -300,6 +313,11 @@ namespace MultiplayerLobbyFixes
             {
                 glyph = Spinner();
                 reason = string.Empty;
+            }
+            else if (state == ServerBrowser.QueryState.Queued)
+            {
+                glyph = StillSpinner();
+                reason = QueuedText;
             }
             else if (state == ServerBrowser.QueryState.Answered)
             {

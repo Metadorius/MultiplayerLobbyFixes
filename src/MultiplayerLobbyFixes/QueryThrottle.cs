@@ -27,9 +27,6 @@ namespace MultiplayerLobbyFixes
     /// </summary>
     internal static class QueryThrottle
     {
-        /// <summary>How many queries may wait at once before the queue lets the rest start unspaced.</summary>
-        private const int Cap = 2000;
-
         /// <summary>The queries waiting for their turn, oldest first.</summary>
         private static readonly Queue<object> Pending = new Queue<object>();
 
@@ -74,9 +71,9 @@ namespace MultiplayerLobbyFixes
                 return true;
             }
 
-            if (Waiting.Count >= Cap || !PumpExists())
+            if (!PumpExists())
             {
-                // A query the game asked for is never dropped: over the cap, or without a pump, it starts now.
+                // A query the game asked for is never dropped: with no pump to start it, it starts now.
                 Plugin.Verbose("Starting a " + what + " query unspaced.");
                 return true;
             }

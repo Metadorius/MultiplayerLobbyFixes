@@ -112,6 +112,9 @@ namespace MultiplayerLobbyFixes
             /// <summary>A query is out, waiting for an answer or a failure.</summary>
             Asking,
 
+            /// <summary>A press has this server down for a refresh that has not gone out yet.</summary>
+            Queued,
+
             /// <summary>The last query was answered.</summary>
             Answered,
 
@@ -208,6 +211,11 @@ namespace MultiplayerLobbyFixes
                 return QueryState.Asking;
             }
 
+            if (Waiting.Contains(id.m_SteamID))
+            {
+                return QueryState.Queued;
+            }
+
             bool answered;
             if (Settled.TryGetValue(id.m_SteamID, out answered))
             {
@@ -263,6 +271,11 @@ namespace MultiplayerLobbyFixes
             if (RulesAsking.ContainsKey(id.m_SteamID))
             {
                 return QueryState.Asking;
+            }
+
+            if (Waiting.Contains(id.m_SteamID))
+            {
+                return QueryState.Queued;
             }
 
             bool answered;
@@ -362,35 +375,59 @@ namespace MultiplayerLobbyFixes
                 replaced.Add("ping");
             }
 
-            LogCopy(copy, replaced);
+            CountCopy(copy, replaced);
+        }
+
+        /// <summary>How many copies the master list handed over since the last line, and what they said.</summary>
+        private static int _copies;
+
+        private static int _copiesCold;
+
+        private static int _copiesRepaired;
+
+        private static float _lastCopy;
+
+        /// <summary>
+        /// Counts one copy Steam handed over, instead of a line of its own: a refresh hands over a copy per server,
+        /// and a line each marshals the name, the tags, the map and the description off every one of them, which is
+        /// work no log is worth.
+        /// </summary>
+        private static void CountCopy(gameserveritem_t copy, List<string> replaced)
+        {
+            _copies++;
+            _lastCopy = Time.time;
+
+            if (!copy.m_bHadSuccessfulResponse)
+            {
+                _copiesCold++;
+            }
+
+            if (replaced.Count > 0)
+            {
+                _copiesRepaired++;
+            }
         }
 
         /// <summary>
-        /// One line per copy Steam hands over, every field of it, while verbose logging is on: the shape of a copy
-        /// that failed against one that answered is what the repair's test is argued from, so this is where to check
-        /// it on a refresh that goes wrong.
+        /// Writes the copies' tally once the hand-over has stopped, which is a line per refresh rather than a line
+        /// per copy. A copy that failed against one that answered is what the repair's test is argued from, so the
+        /// counts stay; the per-copy fields were only ever read while that test was being written.
         /// </summary>
-        private static void LogCopy(gameserveritem_t copy, List<string> replaced)
+        internal static void ReportCopies()
         {
+            if (_copies == 0 || Time.time - _lastCopy < 1f)
+            {
+                return;
+            }
+
             Plugin.Verbose(
-                "Copy " + copy.m_steamID.m_SteamID
-                + " replied=" + copy.m_bHadSuccessfulResponse
-                + " ping=" + copy.m_nPing
-                + " players=" + copy.m_nPlayers + "/" + copy.m_nMaxPlayers
-                + " bots=" + copy.m_nBotPlayers
-                + " password=" + copy.m_bPassword
-                + " secure=" + copy.m_bSecure
-                + " doNotRefresh=" + copy.m_bDoNotRefresh
-                + " app=" + copy.m_nAppID
-                + " version=" + copy.m_nServerVersion
-                + " lastPlayed=" + copy.m_ulTimeLastPlayed
-                + " addr=" + copy.m_NetAdr.GetQueryAddressString()
-                + " name=\"" + copy.GetServerName() + "\""
-                + " tags=\"" + copy.GetGameTags() + "\""
-                + " dir=\"" + copy.GetGameDir() + "\""
-                + " map=\"" + copy.GetMap() + "\""
-                + " desc=\"" + copy.GetGameDescription() + "\""
-                + " replaced=" + (replaced.Count > 0 ? string.Join(",", replaced) : "none"));
+                "The master list handed over " + _copies + " entries: " + _copiesCold
+                + " of them have never answered this machine, " + _copiesRepaired
+                + " needed a field put back from what the server said before.");
+
+            _copies = 0;
+            _copiesCold = 0;
+            _copiesRepaired = 0;
         }
 
         /// <summary>Remembers what a server that answered said about itself, for the refreshes that follow.</summary>
@@ -721,8 +758,14 @@ namespace MultiplayerLobbyFixes
             Question previous;
             if (Questioned.TryGetValue(id, out previous))
             {
-                // This ask replaces one that is still out: the older pair of queries stops here.
+                // This ask replaces one that is still out: the older pair of queries stops here, and it counts as
+                // settled, because no answer of its own is coming to close it.
                 CancelQueries(previous);
+
+                if (previous.Updated == null)
+                {
+                    _passSettled++;
+                }
             }
 
             Questioned[id] = question;
@@ -745,6 +788,11 @@ namespace MultiplayerLobbyFixes
                 address.GetIP(), address.GetQueryPort(), question.Details);
             question.PingAsked = true;
 
+            if (updated == null)
+            {
+                _passAsked++;
+            }
+
             return true;
         }
 
@@ -752,17 +800,26 @@ namespace MultiplayerLobbyFixes
         private static void PingFailure(Question question)
         {
             PingFailed(IdOf(question.Lobby));
+
+            if (question.Updated == null)
+            {
+                _passEmpty++;
+            }
+
             Outcome(question, false, false);
         }
 
         /// <summary>The server said what it is, straight from the source: its name, its counts and its ping.</summary>
         private static void Details(Question question, gameserveritem_t server)
         {
+            var mark = Cost.Mark();
             var lobby = question.Lobby;
             var id = IdOf(lobby);
 
             if (id.IsValid())
             {
+                var ping = Cost.Mark();
+
                 // The game's own way of taking a ping sample, so its state stays consistent with a vanilla ping.
                 lobby.SetPingResult(server.m_nPing);
 
@@ -779,6 +836,10 @@ namespace MultiplayerLobbyFixes
                     PingFailed(id);
                 }
 
+                Cost.Add("ping", ping, lobby);
+
+                var keep = Cost.Mark();
+
                 // An answer here is proof the server is alive, so it goes back into the game's ping loop, the way
                 // the admit pass treats a rules answer; a server the filter hides stays out either way.
                 if (Plugin.KeepServersListed.Value && LocalFilters.Passes(lobby, LocalFilters.Current()))
@@ -786,14 +847,32 @@ namespace MultiplayerLobbyFixes
                     lobby.InList = true;
                 }
 
-                Answered(lobby, server);
+                Cost.Add("keep", keep, lobby);
 
-                Plugin.Verbose(
-                    "The refresh of " + server.GetServerName() + " answered: players=" + server.m_nPlayers + "/"
-                    + server.m_nMaxPlayers + " ping=" + server.m_nPing + " password=" + server.m_bPassword);
+                var save = Cost.Mark();
+                Answered(lobby, server);
+                Cost.Add("save", save, lobby);
+
+                if (question.Updated == null)
+                {
+                    // A pass answers for every row it asked, and a line each is a hundred lines per press, each
+                    // of them through the console and the log file. The tally in RefreshTick says the same thing
+                    // once the pass is over.
+                    _passAnswered++;
+                }
+                else
+                {
+                    // The details window's own refresh is one server, so its answer may be a line of its own.
+                    Plugin.Verbose(
+                        "The refresh of " + server.GetServerName() + " answered: players=" + server.m_nPlayers + "/"
+                        + server.m_nMaxPlayers + " ping=" + server.m_nPing + " password=" + server.m_bPassword);
+                }
             }
 
+            var settle = Cost.Mark();
             Outcome(question, true, false);
+            Cost.Add("settle", settle, lobby);
+            Cost.Add("answer", mark, lobby);
         }
 
         /// <summary>
@@ -913,6 +992,7 @@ namespace MultiplayerLobbyFixes
                 // Nothing is waiting: this press starts the pass over.
                 ToAsk.Clear();
                 Picked.Clear();
+                Waiting.Clear();
                 _askAt = 0;
             }
 
@@ -952,11 +1032,19 @@ namespace MultiplayerLobbyFixes
 
                 ToAsk.Add(lobby);
                 Picked.Add(id.m_SteamID);
+                Waiting.Add(id.m_SteamID);
                 added++;
             }
 
             if (added > 0)
             {
+                // Everything the pass has down for a refresh shows a still icon from here, so a press reads as
+                // work queued rather than as nothing at all until each row's turn comes.
+                for (var i = 0; i < ToAsk.Count; i++)
+                {
+                    StaleRowPatch.Repaint(ToAsk[i]);
+                }
+
                 Plugin.Verbose(
                     "A refresh press added " + added + " finished servers to the pass, " + (ToAsk.Count - _askAt)
                     + " still to ask of " + lobbies.Count + " in hand.");
@@ -971,15 +1059,21 @@ namespace MultiplayerLobbyFixes
                 return;
             }
 
+            var mark = Cost.Mark();
             for (var i = 0; i < AskPerFrame && _askAt < ToAsk.Count; i++, _askAt++)
             {
+                // Its turn has come, so it is not queued any more, whatever the ask itself does with it.
+                Waiting.Remove(IdOf(ToAsk[_askAt]).m_SteamID);
                 RefreshServer(ToAsk[_askAt], null);
             }
+
+            Cost.Add("asks", mark);
 
             if (_askAt >= ToAsk.Count)
             {
                 ToAsk.Clear();
                 Picked.Clear();
+                Waiting.Clear();
                 _askAt = 0;
                 Plugin.Verbose("The refresh pass asked every server it picked.");
             }
@@ -993,7 +1087,23 @@ namespace MultiplayerLobbyFixes
 
         private static readonly HashSet<ulong> Picked = new HashSet<ulong>();
 
+        /// <summary>
+        /// The picked servers the pass has not asked yet, by id, which is what the markers read as queued. It is
+        /// not the same as Picked: that one keeps a row for the whole pass, answers included.
+        /// </summary>
+        private static readonly HashSet<ulong> Waiting = new HashSet<ulong>();
+
         private static int _askAt;
+
+        /// <summary>The pass's tally, written by the asks, the answers and the settles, and cleared by the line
+        /// that reports it.</summary>
+        private static int _passAsked;
+
+        private static int _passSettled;
+
+        private static int _passAnswered;
+
+        private static int _passEmpty;
 
         private static readonly FieldInfo RequestField = AccessTools.Field(typeof(SteamLobby), "serverListRequest");
 
@@ -1055,6 +1165,19 @@ namespace MultiplayerLobbyFixes
         /// <summary>Finishes a refresh that is over, either because both answers came or because it was given up on.</summary>
         internal static void RefreshTick()
         {
+            if (_passAsked > 0 && _passSettled >= _passAsked)
+            {
+                // One line for a whole pass. A line per answer is what makes a press of a hundred rows cost a
+                // hundred writes to the console and the log file.
+                Plugin.Verbose(
+                    "The refresh pass asked " + _passAsked + " servers: " + _passAnswered
+                    + " answered, " + _passEmpty + " said nothing.");
+                _passAsked = 0;
+                _passSettled = 0;
+                _passAnswered = 0;
+                _passEmpty = 0;
+            }
+
             if (Questioned.Count == 0)
             {
                 return;
@@ -1107,8 +1230,15 @@ namespace MultiplayerLobbyFixes
 
             Questioned.Remove(id.m_SteamID);
 
+            if (question.Updated == null)
+            {
+                _passSettled++;
+            }
+
             // Both answers are in, or the refresh was given up on: either way, its two queries are done with.
+            var closes = Cost.Mark();
             CancelQueries(question);
+            Cost.Add("closes", closes, lobby);
 
             // Give-ups are reported in one line by RefreshTick, where a press can make several at once; only
             // the details window's own ask keeps a line per refresh.
@@ -1122,14 +1252,20 @@ namespace MultiplayerLobbyFixes
             // that as an answer would mark it answered for the admit pass and hand a dead entry to the ping loop.
             if (question.RulesAnswered)
             {
+                var remembered = Cost.Mark();
                 Remember(lobby);
+                Cost.Add("remember", remembered, lobby);
             }
 
+            var shown = Cost.Mark();
             Announce(SteamLobby.instance, lobby);
+            Cost.Add("show", shown, lobby);
 
             if (question.Updated != null)
             {
+                var window = Cost.Mark();
                 question.Updated();
+                Cost.Add("window", window, lobby);
             }
         }
 
@@ -1139,16 +1275,27 @@ namespace MultiplayerLobbyFixes
         /// </summary>
         private static void CancelQueries(Question question)
         {
+            // A half that already answered is done with on Steam's side, and cancelling it would be a Steam call
+            // for nothing. A refresh of a hundred rows ends two hundred of these, and a call into Steam from
+            // inside its own callback pump is what blocks a frame for most of a second.
             if (question.RulesAsked)
             {
                 question.RulesAsked = false;
-                CancelQuery(question.RulesHandle);
+
+                if (!question.RulesSettled)
+                {
+                    CancelQuery(question.RulesHandle);
+                }
             }
 
             if (question.PingAsked)
             {
                 question.PingAsked = false;
-                CancelQuery(question.PingHandle);
+
+                if (!question.DetailsSettled)
+                {
+                    CancelQuery(question.PingHandle);
+                }
             }
         }
 
@@ -2879,6 +3026,17 @@ namespace MultiplayerLobbyFixes
 
         private static bool _seen;
 
+        /// <summary>
+        /// Records a filter the mod put on the rows itself. Those rows match it, so the clear that follows is a
+        /// press and not a moved toggle; without this the local apply's own filter write reads as a change, and the
+        /// press's clear drops every row, which is the vanilla emptying the patch exists to stop.
+        /// </summary>
+        internal static void Remember(LobbySearchFilter filter)
+        {
+            _lastFilter = filter;
+            _seen = true;
+        }
+
         [HarmonyPrefix]
         private static bool Prefix(LobbyList __instance)
         {
@@ -2974,6 +3132,22 @@ namespace MultiplayerLobbyFixes
         [HarmonyPatch(typeof(LobbyList), "Update")]
         [HarmonyPrefix]
         private static void BeforeUpdate(LobbyList __instance)
+        {
+            var mark = Cost.Mark();
+            try
+            {
+                TickAndSort(__instance);
+            }
+            finally
+            {
+                Cost.Add("frame", mark);
+                Cost.Frame();
+                ServerBrowser.ReportCopies();
+            }
+        }
+
+        /// <summary>The per-frame work itself, apart from the timing wrapped around it.</summary>
+        private static void TickAndSort(LobbyList __instance)
         {
             StaleRowPatch.Tick(__instance);
             ServerBrowser.RefreshTick();
