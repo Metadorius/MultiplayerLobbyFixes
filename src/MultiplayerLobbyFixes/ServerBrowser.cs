@@ -916,10 +916,10 @@ namespace MapMouseSelect
         ///
         /// The game's request runs on the same press and asks the master list for the servers again, so what this
         /// pass adds is the rules and ping ask for every row on screen, which Steam's own refresh of a session
-        /// stops delivering after the first one. Two kinds of server are left out: the ones the game's request is
-        /// asking at this moment, and the ones listed as unreachable, which have never answered anything and would
-        /// only make a give-up and a wasted pair of queries. The asks go out a few per frame from
-        /// RefreshListedTick, so one press never starts every query in one frame.
+        /// stops delivering after the first one. Only the servers the game's request is asking at this moment are
+        /// left out; the unreachable ones are asked like the rest, because a press is the moment to try them
+        /// again. The asks go out a few per frame from RefreshListedTick, so one press never starts every query
+        /// in one frame.
         /// </summary>
         internal static void RefreshListed()
         {
@@ -949,7 +949,7 @@ namespace MapMouseSelect
                 }
 
                 var id = IdOf(lobby);
-                if (!id.IsValid() || asking.Contains(id.m_SteamID) || Unreachable.Contains(id.m_SteamID))
+                if (!id.IsValid() || asking.Contains(id.m_SteamID))
                 {
                     continue;
                 }
