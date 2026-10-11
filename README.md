@@ -21,8 +21,9 @@ Please note that most of the changes only apply to *dedicated servers*, as that'
 - If a server entry receives proper piece of info (name, player count, etc), a bogus piece of info (0/0 player count) won't ever replace it anymore.
 - Added a per-server **`🔃 Refresh` button** in the detailed server info.
 - Added markers of state of the per-server data:
-  - 3 states:
+  - 4 states:
     - ⚠️ icon for possibly stale information (request wasn't answered, or answered with nothing usable), with a clarification in a tooltip,
+    - static 🔃 icon for a refresh that is queued and hasn't gone out yet;
     - animated 🔃 icon for a query in progress;
     - no icon - fresh info
   - shown in:

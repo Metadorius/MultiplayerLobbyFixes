@@ -36,7 +36,7 @@ Queries are made countable. `QueryThrottle` holds the game's own query objects, 
 
 `VerboseLogging` sits on the same budget: every line BepInEx writes reaches the console and the log file on the main thread, and the old line-per-query narration made a refresh press cost close to a second. The asks, the settle waves and the give-ups are one line per pass now; the queue and the marker transitions narrate nothing.
 
-`StaleRows` draws the query state on the rows: a pulsing icon while a query is out, a warning triangle with a tooltip once the last one came back empty, on the ping column and the mission cell, and in the details window's own rows. A response that carried nothing real counts as empty: nought, a negative or Steam's 2000 placeholder where a ping should be, and a rules response that brought no mission and no map. A copy with no room in it is read as missing the same way, so its counts and password do not write over what is known.
+`StaleRows` draws the query state on the rows: a pulsing icon while a query is out, a still one while the pass has a refresh queued for the row and has not asked yet, a warning triangle with a tooltip once the last one came back empty, on the ping column and the mission cell, and in the details window's own rows. A response that carried nothing real counts as empty: nought, a negative or Steam's 2000 placeholder where a ping should be, and a rules response that brought no mission and no map. A copy with no room in it is read as missing the same way, so its counts and password do not write over what is known.
 
 ## Steam joins
 
