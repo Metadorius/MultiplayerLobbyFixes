@@ -660,27 +660,16 @@ namespace MapMouseSelect
         private const float QuestionTimeout = 10f;
 
         /// <summary>
-        /// Asks one server for its rules and for its own details, at the player's request from the details window.
+        /// Asks one server for its rules and for its own details, and keeps both handles so the pair can be
+        /// cancelled. The details window's button passes an update callback, which reads that window again once the
+        /// answers land; the refresh pass passes none, because its row repaints on its own.
         ///
         /// The rules answer carries the mission, the map, the description and the duration. The details answer, the
         /// one a ping query returns, carries the name, the player counts and the ping, which is why both are asked:
         /// a name is not something a rules answer contains, and the copy the master list hands over for a server it
         /// could not reach has an address where the name should be.
-        ///
-        /// Once both have settled the entry is remembered, the row is shown again so its columns pick the values up,
-        /// and the window is told to read itself again. The whole-list refresh spends the same two queries on every
-        /// server the browser holds; see RefreshListed.
         /// </summary>
-        internal static void RefreshServer(ServerLobbyInstance lobby, Action updated)
-        {
-            RefreshServer(lobby, updated, true);
-        }
-
-        /// <summary>
-        /// The same ask, with the choice of going out on the spot, which a player's own press takes, or through the
-        /// query queue, which is how the whole-list refresh spends it.
-        /// </summary>
-        private static bool RefreshServer(ServerLobbyInstance lobby, Action updated, bool immediate)
+        internal static bool RefreshServer(ServerLobbyInstance lobby, Action updated)
         {
             if (lobby == null)
             {
@@ -744,14 +733,11 @@ namespace MapMouseSelect
             RulesStarted(lobby);
             StaleRowPatch.Repaint(lobby);
 
-            if (immediate)
-            {
-                Plugin.Verbose("Asked " + lobby.LobbyNameSanitized + " (" + id + ") for its rules and its details.");
-            }
-
-            // The mod's own asks go out on the spot: the queue holds the game's queries, and the whole-list
-            // pass paces itself, so nothing here waits for a turn. Both handles are kept, because nothing else
-            // holds them: a refresh that is replaced, given up on, or closed cancels its own two queries.
+            // The asks go out on the spot: the queue holds the game's own queries, and the refresh pass paces
+            // itself, so nothing here waits for a turn. Both handles are kept, because nothing else holds them. A
+            // refresh that is replaced or given up on cancels its own two queries; one whose answers land after the
+            // details window is closed still updates the row, and the window reads itself again only if it is still
+            // open on that server.
             question.RulesHandle = SteamMatchmakingServers.ServerRules(
                 address.GetIP(), address.GetQueryPort(), question.Rules);
             question.RulesAsked = true;
@@ -987,7 +973,7 @@ namespace MapMouseSelect
 
             for (var i = 0; i < AskPerFrame && _askAt < ToAsk.Count; i++, _askAt++)
             {
-                RefreshServer(ToAsk[_askAt], null, false);
+                RefreshServer(ToAsk[_askAt], null);
             }
 
             if (_askAt >= ToAsk.Count)
@@ -1176,26 +1162,6 @@ namespace MapMouseSelect
             {
                 Plugin.Log.LogError("Could not cancel a server query: " + e);
             }
-        }
-
-        /// <summary>
-        /// Drops the refresh the details window asked for, for when that window is closed while its queries are
-        /// still out. The two queries are cancelled and the question is forgotten, so nothing runs on behind a
-        /// window that is no longer open.
-        /// </summary>
-        internal static void CancelQuestionFor(ServerLobbyInstance lobby)
-        {
-            var id = IdOf(lobby);
-
-            Question question;
-            if (!id.IsValid() || !Questioned.TryGetValue(id.m_SteamID, out question))
-            {
-                return;
-            }
-
-            Questioned.Remove(id.m_SteamID);
-            CancelQueries(question);
-            Plugin.Verbose("The server details window closed; its refresh was dropped.");
         }
 
         internal static void Report(ServerLobbyInstance lobby, string why)
@@ -3111,33 +3077,6 @@ namespace MapMouseSelect
             if (shown > 0)
             {
                 Plugin.Verbose("Put " + shown + " servers from the last visit back in the list.");
-            }
-        }
-    }
-
-    /// <summary>
-    /// Cancels the queries a details-window refresh asked when that window closes. The player is no longer
-    /// waiting on those answers, so the queries should not keep running.
-    /// </summary>
-    [HarmonyPatch(typeof(LobbyDetailsModal), "Hide")]
-    internal static class DetailRefreshClosePatch
-    {
-        private static readonly FieldInfo LobbyField = AccessTools.Field(typeof(LobbyDetailsModal), "lobby");
-
-        [HarmonyPrefix]
-        private static void Prefix(LobbyDetailsModal __instance)
-        {
-            try
-            {
-                var lobby = LobbyField != null ? LobbyField.GetValue(__instance) as ServerLobbyInstance : null;
-                if (lobby != null)
-                {
-                    ServerBrowser.CancelQuestionFor(lobby);
-                }
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogError("Could not drop a details-window refresh: " + e);
             }
         }
     }
