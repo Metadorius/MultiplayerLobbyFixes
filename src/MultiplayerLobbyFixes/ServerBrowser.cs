@@ -912,14 +912,14 @@ namespace MapMouseSelect
         }
 
         /// <summary>
-        /// Picks the servers a refresh press should ask again: the ones whose answers are missing or old, and
-        /// which the game's own request is not asking for right now.
+        /// Picks the servers a refresh press should ask again: every server that passes the filter.
         ///
-        /// The game's request runs on the same press and spends a rules query on every server it brings in, so
-        /// this pass fills only the gaps that request leaves: a server that already has both answers and got them
-        /// recently is left alone, and so is one the request is asking at this moment. A screen opening is not a
-        /// press and picks nothing. The asks go out a few per frame from RefreshListedTick, so one press never
-        /// starts every query in one frame.
+        /// The game's request runs on the same press and asks the master list for the servers again, so what this
+        /// pass adds is the rules and ping ask for every row on screen, which Steam's own refresh of a session
+        /// stops delivering after the first one. Two kinds of server are left out: the ones the game's request is
+        /// asking at this moment, and the ones listed as unreachable, which have never answered anything and would
+        /// only make a give-up and a wasted pair of queries. The asks go out a few per frame from
+        /// RefreshListedTick, so one press never starts every query in one frame.
         /// </summary>
         internal static void RefreshListed()
         {
@@ -949,12 +949,12 @@ namespace MapMouseSelect
                 }
 
                 var id = IdOf(lobby);
-                if (!id.IsValid() || asking.Contains(id.m_SteamID))
+                if (!id.IsValid() || asking.Contains(id.m_SteamID) || Unreachable.Contains(id.m_SteamID))
                 {
                     continue;
                 }
 
-                if (!LocalFilters.Passes(lobby, filter) || Fresh(lobby))
+                if (!LocalFilters.Passes(lobby, filter))
                 {
                     continue;
                 }
@@ -992,9 +992,6 @@ namespace MapMouseSelect
         /// <summary>How many of the picked servers a refresh pass asks per frame.</summary>
         private const int AskPerFrame = 2;
 
-        /// <summary>How long a pair of answers counts as fresh, so that a press can skip the server.</summary>
-        private const float FreshFor = 300f;
-
         /// <summary>The servers the last press picked, and how far through them the pass is.</summary>
         private static readonly List<ServerLobbyInstance> ToAsk = new List<ServerLobbyInstance>();
 
@@ -1010,19 +1007,6 @@ namespace MapMouseSelect
 
         private static readonly FieldInfo PingLobbyField = AccessTools.Field(
             AccessTools.Inner(typeof(SteamLobby), "PingQuery"), "lobby");
-
-        /// <summary>Whether the server's two answers are in and young enough to leave it alone this pass.</summary>
-        private static bool Fresh(ServerLobbyInstance lobby)
-        {
-            var id = IdOf(lobby);
-            if (!id.IsValid() || !HasRulesContent(lobby) || !HasPing(id))
-            {
-                return false;
-            }
-
-            float askedAt;
-            return RequestedAt.TryGetValue(id.m_SteamID, out askedAt) && Time.time - askedAt <= FreshFor;
-        }
 
         /// <summary>Collects the ids the game's request is asking right now, its rules queries and pings alike.</summary>
         private static void CollectAsking(HashSet<ulong> into)
