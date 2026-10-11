@@ -5,7 +5,7 @@ using HarmonyLib;
 using NuclearOption.Networking.Lobbies;
 using UnityEngine;
 
-namespace MapMouseSelect
+namespace MultiplayerLobbyFixes
 {
     /// <summary>
     /// Holds the game's per-server queries in a queue and starts them one at a time, instead of letting a
@@ -221,7 +221,7 @@ namespace MapMouseSelect
 
             try
             {
-                _pump = new GameObject("MapMouseSelectQueryThrottle");
+                _pump = new GameObject("MultiplayerLobbyFixesQueryThrottle");
                 UnityEngine.Object.DontDestroyOnLoad(_pump);
                 _pump.AddComponent<Pump>();
                 Plugin.Verbose("Query pump started.");

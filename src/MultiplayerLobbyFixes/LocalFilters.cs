@@ -6,7 +6,7 @@ using NuclearOption.Networking.Lobbies;
 using NuclearOption.UI;
 using Steamworks;
 
-namespace MapMouseSelect
+namespace MultiplayerLobbyFixes
 {
     /// <summary>
     /// Applies the browser's filters to what has already arrived, instead of letting the game ask Steam for the

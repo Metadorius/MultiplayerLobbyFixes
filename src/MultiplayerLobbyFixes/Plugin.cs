@@ -7,7 +7,7 @@ using HarmonyLib;
 using NuclearOption.Networking;
 using NuclearOption.Networking.Lobbies;
 
-namespace MapMouseSelect
+namespace MultiplayerLobbyFixes
 {
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     public sealed class Plugin : BaseUnityPlugin

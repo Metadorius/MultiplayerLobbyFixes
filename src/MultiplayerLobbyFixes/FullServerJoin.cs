@@ -3,7 +3,7 @@ using HarmonyLib;
 using NuclearOption.Networking.Lobbies;
 using UnityEngine.UI;
 
-namespace MapMouseSelect
+namespace MultiplayerLobbyFixes
 {
     /// <summary>
     /// Keeps the details modal's Join button clickable when the player count says the server is full.

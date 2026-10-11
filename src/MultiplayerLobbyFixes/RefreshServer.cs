@@ -8,7 +8,7 @@ using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
 
-namespace MapMouseSelect
+namespace MultiplayerLobbyFixes
 {
     /// <summary>
     /// Puts a Refresh button in the server details window, immediately left of Join, which asks that one server for
@@ -68,7 +68,7 @@ namespace MapMouseSelect
             if (_button == null)
             {
                 var copy = UnityEngine.Object.Instantiate(join.gameObject, join.transform.parent);
-                copy.name = "MapMouseSelectRefreshServer";
+copy.name = "MultiplayerLobbyFixesRefreshServer";
 
                 _button = copy.GetComponent<Button>();
                 if (_button == null)

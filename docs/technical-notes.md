@@ -67,4 +67,4 @@ Testing a Steam join needs the Steam client: the rich presence path only happens
 
 Version 0.1.0, played against game 0.34.1. The browser changes and the join paths were developed and verified in play, a running game and a cold launch through the Steam client both included.
 
-The code was split byte for byte out of Map Mouse Select 0.3.0, where all of it was developed, so the files keep that mod's internal namespace `MapMouseSelect`, and three GameObject names carry it too (`MapMouseSelectQueryThrottle`, `MapMouseSelectRefreshServer`, `MapMouseSelectStaleTooltip`). Both are cosmetic leftovers of the split, free to rename in a later pass.
+The code was split byte for byte out of Map Mouse Select 0.3.0, where all of it was developed. The files' internal namespace and the three GameObject names came over from that mod and were renamed to `MultiplayerLobbyFixes` after the split.

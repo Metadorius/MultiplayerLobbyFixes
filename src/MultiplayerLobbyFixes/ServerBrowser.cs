@@ -12,7 +12,7 @@ using Steamworks;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-namespace MapMouseSelect
+namespace MultiplayerLobbyFixes
 {
     /// <summary>
     /// Keeps the browser usable when Steam stops answering its per-server queries.

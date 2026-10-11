@@ -7,7 +7,7 @@ using NuclearOption.Networking.Lobbies;
 using TMPro;
 using UnityEngine;
 
-namespace MapMouseSelect
+namespace MultiplayerLobbyFixes
 {
     /// <summary>
     /// Draws the two query markers, the ping column's and the mission cell's, the way the game marks a server
@@ -380,7 +380,7 @@ namespace MapMouseSelect
 
             // Cloned alongside the original so it sits on the same canvas and moves the same way.
             var clone = UnityEngine.Object.Instantiate(source.gameObject, source.transform.parent);
-            clone.name = "MapMouseSelectStaleTooltip";
+            clone.name = "MultiplayerLobbyFixesStaleTooltip";
             _tooltip = clone.GetComponent<HoverText>();
             return _tooltip;
         }

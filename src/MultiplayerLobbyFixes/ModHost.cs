@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace MapMouseSelect
+namespace MultiplayerLobbyFixes
 {
     /// <summary>
     /// The mod's own per-frame component. BepInEx destroys its plugin host object in this game right after
