@@ -912,19 +912,23 @@ namespace MapMouseSelect
         }
 
         /// <summary>
-        /// Picks the servers a refresh press should ask again: every server that passes the filter.
+        /// Adds to the refresh pass the servers a press should ask: the ones with nothing of their own on the way.
         ///
-        /// The game's request runs on the same press and asks the master list for the servers again, so what this
-        /// pass adds is the rules and ping ask for every row on screen, which Steam's own refresh of a session
-        /// stops delivering after the first one. Only the servers the game's request is asking at this moment are
-        /// left out; the unreachable ones are asked like the rest, because a press is the moment to try them
-        /// again. The asks go out a few per frame from RefreshListedTick, so one press never starts every query
-        /// in one frame.
+        /// A server falls into one of three groups. It is finished when no question of the mod's own is pending
+        /// for it, and a press enqueues it. It is waiting when the pass has picked it but has not asked yet, and in
+        /// flight when its two queries are out; both are left alone, because that ask is already on its way. A
+        /// press that lands while a pass is running therefore tops the pass up instead of restarting it, and one
+        /// that lands after the pass is done starts a fresh pick of every finished row.
         /// </summary>
         internal static void RefreshListed()
         {
-            ToAsk.Clear();
-            _askAt = 0;
+            if (_askAt >= ToAsk.Count)
+            {
+                // Nothing is waiting: this press starts the pass over.
+                ToAsk.Clear();
+                Picked.Clear();
+                _askAt = 0;
+            }
 
             var manager = SteamLobby.instance;
             var lobbies = manager != null && LobbiesField != null
@@ -940,6 +944,7 @@ namespace MapMouseSelect
             var asking = new HashSet<ulong>();
             CollectAsking(asking);
 
+            var added = 0;
             foreach (var entry in lobbies.Values)
             {
                 var lobby = entry as ServerLobbyInstance;
@@ -949,28 +954,30 @@ namespace MapMouseSelect
                 }
 
                 var id = IdOf(lobby);
-                if (!id.IsValid() || asking.Contains(id.m_SteamID))
+                if (!id.IsValid() || asking.Contains(id.m_SteamID) || Picked.Contains(id.m_SteamID))
                 {
                     continue;
                 }
 
-                if (!LocalFilters.Passes(lobby, filter))
+                if (Questioned.ContainsKey(id.m_SteamID) || !LocalFilters.Passes(lobby, filter))
                 {
                     continue;
                 }
 
                 ToAsk.Add(lobby);
+                Picked.Add(id.m_SteamID);
+                added++;
             }
 
-            if (ToAsk.Count > 0)
+            if (added > 0)
             {
                 Plugin.Verbose(
-                    "A refresh press picked " + ToAsk.Count + " of the " + lobbies.Count
-                    + " servers in hand to ask again.");
+                    "A refresh press added " + added + " finished servers to the pass, " + (ToAsk.Count - _askAt)
+                    + " still to ask of " + lobbies.Count + " in hand.");
             }
         }
 
-        /// <summary>Asks the servers the press picked, a few a frame, and stops once the pick is done.</summary>
+        /// <summary>Asks the servers the press picked, a few a frame, and clears the pick once it is done.</summary>
         internal static void RefreshListedTick()
         {
             if (_askAt >= ToAsk.Count)
@@ -985,15 +992,20 @@ namespace MapMouseSelect
 
             if (_askAt >= ToAsk.Count)
             {
-                Plugin.Verbose("The refresh press finished asking the servers it picked.");
+                ToAsk.Clear();
+                Picked.Clear();
+                _askAt = 0;
+                Plugin.Verbose("The refresh pass asked every server it picked.");
             }
         }
 
         /// <summary>How many of the picked servers a refresh pass asks per frame.</summary>
         private const int AskPerFrame = 2;
 
-        /// <summary>The servers the last press picked, and how far through them the pass is.</summary>
+        /// <summary>The servers the pass is working through, and the ids it has already picked.</summary>
         private static readonly List<ServerLobbyInstance> ToAsk = new List<ServerLobbyInstance>();
+
+        private static readonly HashSet<ulong> Picked = new HashSet<ulong>();
 
         private static int _askAt;
 
