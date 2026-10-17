@@ -70,7 +70,7 @@ namespace MultiplayerLobbyFixes
         private const float PulsePeriod = 1.2f;
 
         /// <summary>When a query that never called back is written off as failed, so a row cannot pulse forever.</summary>
-        private const float AskTimeout = 10f;
+        private static float AskTimeout => Mathf.Max(1f, Plugin.MarkerTimeoutSeconds.Value);
 
         private static readonly FieldInfo LobbyField = AccessTools.Field(typeof(LobbyListItem), "<lobby>k__BackingField");
 

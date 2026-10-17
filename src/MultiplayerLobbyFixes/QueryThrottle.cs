@@ -21,9 +21,9 @@ namespace MultiplayerLobbyFixes
     /// still waiting for it, which the request's own cancel loop cannot reach, because a waiting query is not in
     /// the request's list of running queries yet.
     ///
-    /// A query the queue takes is skipped at its call site and started again by the pump, at most one a frame
-    /// and no sooner than the spacing apart. A query that arrives while nothing is waiting and the spacing has
-    /// passed starts on the spot, so the queue costs nothing in the common single-query case.
+    /// A query the queue takes is skipped at its call site and started again by the pump, spending the shared
+    /// `Rate` like the mod's own asks do. A query that arrives while nothing is waiting starts on the spot, so the
+    /// queue costs nothing in the common single-query case.
     /// </summary>
     internal static class QueryThrottle
     {
@@ -43,10 +43,8 @@ namespace MultiplayerLobbyFixes
         private static readonly FieldInfo QueriesField = AccessTools.Field(
             AccessTools.Inner(typeof(SteamLobby), "PingQuery"), "runningQueries");
 
-        private static float _nextAt;
-
-        /// <summary>The frame a query last started in, so a spacing of 0 still means one query a frame.</summary>
-        private static int _issuedFrame = -1;
+        /// <summary>The game's own rate: its queries spend the shared budget like everything else.</summary>
+        private static readonly Rate Game = Plugin.Queries;
 
         /// <summary>Set while a waiting query is being started, so it is not queued again on its way out.</summary>
         private static bool _issuing;
@@ -63,11 +61,8 @@ namespace MultiplayerLobbyFixes
                 return true;
             }
 
-            var now = Time.time;
-            if (Waiting.Count == 0 && now >= _nextAt && Time.frameCount != _issuedFrame)
+            if (Waiting.Count == 0 && Game.Take(Time.unscaledTime))
             {
-                _issuedFrame = Time.frameCount;
-                _nextAt = now + Plugin.QuerySpacingMs.Value / 1000f;
                 return true;
             }
 
@@ -132,7 +127,7 @@ namespace MultiplayerLobbyFixes
             Plugin.Verbose("Dropped " + dropped.Count + " queries still waiting for a cancelled request.");
         }
 
-        /// <summary>Starts one waiting query once the spacing has passed; the pump calls it every frame.</summary>
+        /// <summary>Starts a frame's share of the waiting queries; the pump calls it every frame.</summary>
         internal static void Drain()
         {
             if (Pending.Count == 0)
@@ -157,22 +152,20 @@ namespace MultiplayerLobbyFixes
 
             while (Pending.Count > 0)
             {
-                var now = Time.time;
-                if (now < _nextAt || Time.frameCount == _issuedFrame)
+                // A query the game cancelled while it waited is gone from Waiting: dropping it costs neither a call
+                // nor a slot, so it is cleared before the rate is asked, and the next one may still go out now.
+                if (!Waiting.Contains(Pending.Peek()))
+                {
+                    Pending.Dequeue();
+                    continue;
+                }
+
+                if (!Game.Take(Time.unscaledTime))
                 {
                     return;
                 }
 
-                var next = Pending.Dequeue();
-                if (!Waiting.Remove(next))
-                {
-                    // Cancelled while it waited. It cost nothing, so the next one may still go out this frame.
-                    continue;
-                }
-
-                _issuedFrame = Time.frameCount;
-                _nextAt = now + Plugin.QuerySpacingMs.Value / 1000f;
-                Start(next);
+                Start(Pending.Dequeue());
             }
         }
 

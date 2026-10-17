@@ -38,11 +38,28 @@ namespace MultiplayerLobbyFixes
         /// <summary>Whether the details window gets a button that asks that one server for its rules and its status again.</summary>
         internal static ConfigEntry<bool> RefreshServerButton { get; private set; }
 
-        /// <summary>Whether the per-server queries go through the spacing queue instead of out at once.</summary>
+        /// <summary>Whether the per-server queries go through the queue instead of out at once.</summary>
         internal static ConfigEntry<bool> ThrottleQueries { get; private set; }
 
-        /// <summary>Milliseconds between the browser's per-server queries, which spreads a refresh's burst out.</summary>
-        internal static ConfigEntry<float> QuerySpacingMs { get; private set; }
+        /// <summary>How many queries a second the mod lets go out, the game's own and its own asks together.</summary>
+        internal static ConfigEntry<float> QueriesPerSecond { get; private set; }
+
+        /// <summary>How many frames the pacer averages the frame time over.</summary>
+        internal static ConfigEntry<int> FrameTimeWindow { get; private set; }
+
+        /// <summary>The one rate every query the mod causes is spent from.</summary>
+        internal static readonly Rate Queries = new Rate(
+            () => QueriesPerSecond != null ? QueriesPerSecond.Value : 120f,
+            () => FrameTimeWindow != null ? FrameTimeWindow.Value : 10);
+
+        /// <summary>How long one server's refresh is left alone before another may start for it.</summary>
+        internal static ConfigEntry<float> RefreshCooldownSeconds { get; private set; }
+
+        /// <summary>When a refresh whose answers never came is given up on.</summary>
+        internal static ConfigEntry<float> RefreshTimeoutSeconds { get; private set; }
+
+        /// <summary>When a query that never called back is written off, so its marker stops waiting.</summary>
+        internal static ConfigEntry<float> MarkerTimeoutSeconds { get; private set; }
 
         internal static ConfigEntry<bool> VerboseLogging { get; private set; }
 
@@ -91,11 +108,40 @@ namespace MultiplayerLobbyFixes
                 + "refresh start them all at once; the game's own ping loop waits in the queue too. A query the "
                 + "game cancels while it waits is dropped. With this off every query starts at once.");
 
-            QuerySpacingMs = Config.Bind("Server browser", "QuerySpacingMs", 5f,
-                "Milliseconds between the queries the queue starts, which spreads a refresh's burst out. A query "
-                + "that arrives sooner waits its turn rather than being dropped. The queue starts at most one "
-                + "query a frame however small this is, so 0 means one query a frame. The ThrottleQueries toggle "
-                + "turns the queue off altogether.");
+            QueriesPerSecond = Config.Bind("Server browser", "QueriesPerSecond", 120f,
+                new ConfigDescription(
+                    "How many queries a second the mod lets go out, the game's held queries and its own asks "
+                    + "together. Each frame takes what its own time is worth, worked out from the average frame "
+                    + "time, so the rate is the same whatever the frame rate is. Lower it to be gentler on servers "
+                    + "and on Steam, at the cost of a refresh press taking longer.",
+                    new AcceptableValueRange<float>(1f, 1000f)));
+
+            FrameTimeWindow = Config.Bind("Server browser", "FrameTimeWindow", 10,
+                new ConfigDescription(
+                    "How many frames the pacer averages the frame time over. A tick takes what the average frame "
+                    + "time is worth, so a steady frame rate is followed closely with a short window, and a few "
+                    + "slow frames are smoothed over with a long one.",
+                    new AcceptableValueRange<int>(1, 240)));
+
+            RefreshCooldownSeconds = Config.Bind("Server browser", "RefreshCooldownSeconds", 3f,
+                new ConfigDescription(
+                    "How long one server's refresh is left alone before another may start for it. A second press "
+                    + "within that window is refused: the first one is still out, and asking again would spend a "
+                    + "second pair of queries on the same server.",
+                    new AcceptableValueRange<float>(0f, 60f)));
+
+            RefreshTimeoutSeconds = Config.Bind("Server browser", "RefreshTimeoutSeconds", 10f,
+                new ConfigDescription(
+                    "When a refresh whose answers never came is given up on. Its unanswered queries are cancelled "
+                    + "then, and the row keeps whatever it already had. A live server usually answers in well under "
+                    + "a second.",
+                    new AcceptableValueRange<float>(1f, 120f)));
+
+            MarkerTimeoutSeconds = Config.Bind("Server browser", "MarkerTimeoutSeconds", 10f,
+                new ConfigDescription(
+                    "When a query that never called back is written off, which is what stops a row's marker from "
+                    + "waiting forever on a server Steam forgot about.",
+                    new AcceptableValueRange<float>(1f, 120f)));
 
             VerboseLogging = Config.Bind("Diagnostics", "VerboseLogging", true,
                 "Log what the browser and the Steam joins are doing.");
@@ -223,7 +269,11 @@ namespace MultiplayerLobbyFixes
                 + ", showLatestQueryStatus=" + ShowLatestQueryStatus.Value
                 + ", refreshServerButton=" + RefreshServerButton.Value
                 + ", throttleQueries=" + ThrottleQueries.Value
-                + ", querySpacingMs=" + QuerySpacingMs.Value);
+                + ", queriesPerSecond=" + QueriesPerSecond.Value
+                + ", frameTimeWindow=" + FrameTimeWindow.Value
+                + ", refreshCooldownSeconds=" + RefreshCooldownSeconds.Value
+                + ", refreshTimeoutSeconds=" + RefreshTimeoutSeconds.Value
+                + ", markerTimeoutSeconds=" + MarkerTimeoutSeconds.Value);
         }
 
         /// <summary>How many prefixes and postfixes landed on a method, or -1 when the method is not there.</summary>

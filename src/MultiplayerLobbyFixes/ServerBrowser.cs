@@ -691,10 +691,10 @@ namespace MultiplayerLobbyFixes
         private static readonly Dictionary<ulong, float> RequestedAt = new Dictionary<ulong, float>();
 
         /// <summary>How long a refresh of one server is left alone before another is allowed.</summary>
-        private const float RequestInterval = 3f;
+        private static float RequestInterval => Math.Max(0f, Plugin.RefreshCooldownSeconds.Value);
 
         /// <summary>When a refresh whose answers never came is written off, so it cannot hold the window back.</summary>
-        private const float QuestionTimeout = 10f;
+        private static float QuestionTimeout => Math.Max(1f, Plugin.RefreshTimeoutSeconds.Value);
 
         /// <summary>
         /// Asks one server for its rules and for its own details, and keeps both handles so the pair can be
@@ -1060,11 +1060,12 @@ namespace MultiplayerLobbyFixes
             }
 
             var mark = Cost.Mark();
-            for (var i = 0; i < AskPerFrame && _askAt < ToAsk.Count; i++, _askAt++)
+            while (_askAt < ToAsk.Count && PassAsks.Take(Time.unscaledTime, 2))
             {
                 // Its turn has come, so it is not queued any more, whatever the ask itself does with it.
                 Waiting.Remove(IdOf(ToAsk[_askAt]).m_SteamID);
                 RefreshServer(ToAsk[_askAt], null);
+                _askAt++;
             }
 
             Cost.Add("asks", mark);
@@ -1079,8 +1080,11 @@ namespace MultiplayerLobbyFixes
             }
         }
 
-        /// <summary>How many of the picked servers a refresh pass asks per frame.</summary>
-        private const int AskPerFrame = 2;
+        /// <summary>
+        /// The pass's own asks, through the same budget as the game's queries. Each charges what it costs, a rules
+        /// query and a ping, so a press divides the budget between the game's traffic and its own.
+        /// </summary>
+        private static readonly Rate PassAsks = Plugin.Queries;
 
         /// <summary>The servers the pass is working through, and the ids it has already picked.</summary>
         private static readonly List<ServerLobbyInstance> ToAsk = new List<ServerLobbyInstance>();
