@@ -17,6 +17,7 @@ Please note that most of the changes only apply to *dedicated servers*, as that'
   - The servers which were not reached are not re-pinged automatically to save queries.
 - Nothing clears the server list anymore (because Steam quickly stops returning you the server list because of rate limit or w/e), including `🔃 Refresh` button, which now just appends/amends (if the entry has legit info) the server entries.
   - A refresh makes all the servers in the list refresh regardless if they came in an answer; if some queries are already in flight - they are not requeried.
+- A `🔃 Refresh` pressed while Steam is still returning the master list now lets that list finish instead of cancelling it and starting over, so the rest of the entries are not thrown away.
   - The servers survive leaving the multiplayer screen and coming back, too.
 - If a server entry receives proper piece of info (name, player count, etc), a bogus piece of info (0/0 player count) won't ever replace it anymore.
 - Added a per-server **`🔃 Refresh` button** in the detailed server info.
