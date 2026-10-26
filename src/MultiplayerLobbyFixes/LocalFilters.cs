@@ -387,21 +387,21 @@ namespace MultiplayerLobbyFixes
     }
 
     /// <summary>
-    /// Keeps the master list request that is already running when another one is asked for, instead of cancelling
-    /// it and starting over.
+    /// Lets the master list request that is already running finish, instead of cancelling it and asking Steam for
+    /// the same servers again.
     ///
-    /// Vanilla cancels the request in flight and starts a new one as soon as the search is asked for again, so a
-    /// refresh pressed while the list is still arriving throws away everything that request had not delivered yet
-    /// and asks Steam for the same servers a second time. This stores the filter as the pending search and lets
-    /// the running request finish: the game starts the pending one by itself once the list is complete, which is
-    /// the same wait it already performs, without the discarded answers.
+    /// Vanilla cancels the request in flight as soon as a search is asked for again, and stores the filter as a
+    /// pending search that it starts once the running one is done. This does neither: the running request is
+    /// allowed to deliver the list it is already fetching, and no second request is made. The pending search is
+    /// deliberately not set, because vanilla skips every arriving entry while one is stored
+    /// ("Skipping OnServerUpdated because of pending refresh"), which would discard the very answers this keeps.
+    ///
+    /// What a press adds is the refresh pass, which asks the servers already in hand; the entries this request
+    /// still delivers arrive with work of their own and are left to the game.
     /// </summary>
     [HarmonyPatch]
     internal static class ListRequestWaitPatch
     {
-        /// <summary>The filter the game starts once the running request is done with.</summary>
-        private static readonly FieldInfo PendingField = AccessTools.Field(typeof(SteamLobby), "pendingSearch");
-
         /// <summary>Whether the player-hosted list is still arriving, which vanilla waits for in the same way.</summary>
         private static readonly FieldInfo PlayerHostedField = AccessTools.Field(
             typeof(SteamLobby), "playerLobbyRefreshInProgress");
@@ -417,11 +417,11 @@ namespace MultiplayerLobbyFixes
         }
 
         [HarmonyPrefix]
-        private static bool Prefix(SteamLobby __instance, LobbySearchFilter filter)
+        private static bool Prefix(SteamLobby __instance)
         {
             try
             {
-                if (__instance == null || PendingField == null || ServerProgressField == null)
+                if (__instance == null || ServerProgressField == null)
                 {
                     return true;
                 }
@@ -433,17 +433,17 @@ namespace MultiplayerLobbyFixes
 
                 if (PlayerHostedField != null && (bool)PlayerHostedField.GetValue(__instance))
                 {
+                    // Vanilla waits for the player-hosted list in this same call, so its handling is left alone.
                     return true;
                 }
 
-                PendingField.SetValue(__instance, (LobbySearchFilter?)filter);
-                Plugin.Verbose("The master list is still arriving, so the next search waits for it instead of "
-                    + "replacing it.");
+                Plugin.Verbose("The master list is still arriving, so it is left to finish instead of being "
+                    + "cancelled and asked again.");
                 return false;
             }
             catch (Exception e)
             {
-                Plugin.Log.LogError("Could not queue the next search behind the running one: " + e);
+                Plugin.Log.LogError("Could not tell whether the master list is still arriving: " + e);
                 return true;
             }
         }
