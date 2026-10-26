@@ -35,7 +35,7 @@ Please note that most of the changes only apply to *dedicated servers*, as that'
 - The `Join` button is not grayed out anymore to be able to join to "0/0" servers (the legit full server will refuse a join anyway).
 - Filters are now fully local and never requery.
 - Queries are throttled by default to not hammer the servers or Steam.
-  - There are settings to control the speed and smoothing out of hitches (the average frametime calculation window).
+  - There is a setting to control the speed.
   - A refresh cancels its own two queries when a newer ask replaces it or when it finishes, so nothing is left running on Steam's side.
   - A query the game cancels while it still waits in the queue never goes out.
 - Servers listed because Steam's master list could not reach them are held out of the game's ping loop, which would otherwise ask those silent hosts again on every pass and hold a socket per attempt until the client's socket set runs out and later refreshes come back nearly empty; one of them answering anything, or a master list that reaches it, puts it back in the loop.

@@ -44,13 +44,9 @@ namespace MultiplayerLobbyFixes
         /// <summary>How many queries a second the mod lets go out, the game's own and its own asks together.</summary>
         internal static ConfigEntry<float> QueriesPerSecond { get; private set; }
 
-        /// <summary>How many frames the pacer averages the frame time over.</summary>
-        internal static ConfigEntry<int> FrameTimeWindow { get; private set; }
-
         /// <summary>The one rate every query the mod causes is spent from.</summary>
         internal static readonly Rate Queries = new Rate(
-            () => QueriesPerSecond != null ? QueriesPerSecond.Value : 120f,
-            () => FrameTimeWindow != null ? FrameTimeWindow.Value : 10);
+            () => QueriesPerSecond != null ? QueriesPerSecond.Value : 120f);
 
         /// <summary>How long one server's refresh is left alone before another may start for it.</summary>
         internal static ConfigEntry<float> RefreshCooldownSeconds { get; private set; }
@@ -111,17 +107,10 @@ namespace MultiplayerLobbyFixes
             QueriesPerSecond = Config.Bind("Server browser", "QueriesPerSecond", 120f,
                 new ConfigDescription(
                     "How many queries a second the mod lets go out, the game's held queries and its own asks "
-                    + "together. Each frame takes what its own time is worth, worked out from the average frame "
+                    + "together. Each frame takes what its own time is worth, worked out from the smoothed frame "
                     + "time, so the rate is the same whatever the frame rate is. Lower it to be gentler on servers "
                     + "and on Steam, at the cost of a refresh press taking longer.",
                     new AcceptableValueRange<float>(1f, 1000f)));
-
-            FrameTimeWindow = Config.Bind("Server browser", "FrameTimeWindow", 10,
-                new ConfigDescription(
-                    "How many frames the pacer averages the frame time over. A tick takes what the average frame "
-                    + "time is worth, so a steady frame rate is followed closely with a short window, and a few "
-                    + "slow frames are smoothed over with a long one.",
-                    new AcceptableValueRange<int>(1, 240)));
 
             RefreshCooldownSeconds = Config.Bind("Server browser", "RefreshCooldownSeconds", 3f,
                 new ConfigDescription(
@@ -270,7 +259,6 @@ namespace MultiplayerLobbyFixes
                 + ", refreshServerButton=" + RefreshServerButton.Value
                 + ", throttleQueries=" + ThrottleQueries.Value
                 + ", queriesPerSecond=" + QueriesPerSecond.Value
-                + ", frameTimeWindow=" + FrameTimeWindow.Value
                 + ", refreshCooldownSeconds=" + RefreshCooldownSeconds.Value
                 + ", refreshTimeoutSeconds=" + RefreshTimeoutSeconds.Value
                 + ", markerTimeoutSeconds=" + MarkerTimeoutSeconds.Value);

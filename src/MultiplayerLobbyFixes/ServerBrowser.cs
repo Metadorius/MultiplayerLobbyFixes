@@ -572,6 +572,31 @@ namespace MultiplayerLobbyFixes
         }
 
         /// <summary>
+        /// Whether the mod's own ask covers this server's rules, which means the game's rules query for it is
+        /// skipped: two answers would say the same thing and cost two sockets.
+        ///
+        /// Two cases. The running refresh pass picked the server, which covers the rows it has queued but not
+        /// asked yet. Or the mod asked it within the cooldown, which covers the entries the master list hands over
+        /// after a pass has finished and cleared its pick.
+        /// </summary>
+        internal static bool OwnsRulesQuery(ServerLobbyInstance lobby)
+        {
+            var id = IdOf(lobby);
+            if (!id.IsValid())
+            {
+                return false;
+            }
+
+            if (Picked.Contains(id.m_SteamID))
+            {
+                return true;
+            }
+
+            float askedAt;
+            return RequestedAt.TryGetValue(id.m_SteamID, out askedAt) && Time.time - askedAt < RequestInterval;
+        }
+
+        /// <summary>
         /// Whether anything is known about a server from an earlier answer: its rules, its name, or its player count.
         ///
         /// A server the master list could not reach this time is not the same as one nothing is known about, and
@@ -1060,7 +1085,7 @@ namespace MultiplayerLobbyFixes
             }
 
             var mark = Cost.Mark();
-            while (_askAt < ToAsk.Count && PassAsks.Take(Time.unscaledTime, 2))
+            while (_askAt < ToAsk.Count && PassAsks.Take(2))
             {
                 // Its turn has come, so it is not queued any more, whatever the ask itself does with it.
                 Waiting.Remove(IdOf(ToAsk[_askAt]).m_SteamID);

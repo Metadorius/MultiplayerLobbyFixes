@@ -61,7 +61,7 @@ namespace MultiplayerLobbyFixes
                 return true;
             }
 
-            if (Waiting.Count == 0 && Game.Take(Time.unscaledTime))
+            if (Waiting.Count == 0 && Game.Take())
             {
                 return true;
             }
@@ -160,7 +160,7 @@ namespace MultiplayerLobbyFixes
                     continue;
                 }
 
-                if (!Game.Take(Time.unscaledTime))
+                if (!Game.Take())
                 {
                     return;
                 }
@@ -238,6 +238,14 @@ namespace MultiplayerLobbyFixes
     [HarmonyPatch]
     internal static class SearchQueryRunPatch
     {
+        /// <summary>The server a rules query is about, which is how the mod knows it already asks for it.</summary>
+        private static readonly FieldInfo LobbyField = AccessTools.Field(
+            AccessTools.Inner(typeof(SteamLobby), "SearchQuery"), "lobby");
+
+        /// <summary>The join waiting on this query, if one is, which makes the game's own query the useful one.</summary>
+        private static readonly FieldInfo JoinField = AccessTools.Field(
+            AccessTools.Inner(typeof(SteamLobby), "SearchQuery"), "cliJoin");
+
         [HarmonyTargetMethod]
         private static MethodBase Target()
         {
@@ -247,6 +255,24 @@ namespace MultiplayerLobbyFixes
         [HarmonyPrefix]
         private static bool Prefix(object __instance)
         {
+            try
+            {
+                var join = JoinField != null ? JoinField.GetValue(__instance) : null;
+                var lobby = LobbyField != null ? LobbyField.GetValue(__instance) as ServerLobbyInstance : null;
+
+                // A server the mod's own ask covers does not need the game's query too: both would send the same
+                // rules request, and the mod already keeps a handle for its own. A query a join waits on is left
+                // alone, because its answer is what hands the server to the join.
+                if (join == null && lobby != null && ServerBrowser.OwnsRulesQuery(lobby))
+                {
+                    return false;
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogError("Could not tell whether a rules query is the mod's own: " + e);
+            }
+
             return QueryThrottle.TryDefer(__instance, "rules");
         }
     }
