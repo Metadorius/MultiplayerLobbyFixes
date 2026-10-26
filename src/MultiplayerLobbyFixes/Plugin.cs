@@ -108,8 +108,9 @@ namespace MultiplayerLobbyFixes
                 new ConfigDescription(
                     "How many queries a second the mod lets go out, the game's held queries and its own asks "
                     + "together. Each frame takes what its own time is worth, worked out from the smoothed frame "
-                    + "time, so the rate is the same whatever the frame rate is. Lower it to be gentler on servers "
-                    + "and on Steam, at the cost of a refresh press taking longer.",
+                    + "time and capped by the engine's maximum frame time, so one long frame cannot spend the whole "
+                    + "queue. Lower it to be gentler on servers and on Steam, at the cost of a refresh press taking "
+                    + "longer.",
                     new AcceptableValueRange<float>(1f, 1000f)));
 
             RefreshCooldownSeconds = Config.Bind("Server browser", "RefreshCooldownSeconds", 3f,
