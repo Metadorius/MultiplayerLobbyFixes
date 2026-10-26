@@ -385,4 +385,67 @@ namespace MultiplayerLobbyFixes
             return true;
         }
     }
+
+    /// <summary>
+    /// Keeps the master list request that is already running when another one is asked for, instead of cancelling
+    /// it and starting over.
+    ///
+    /// Vanilla cancels the request in flight and starts a new one as soon as the search is asked for again, so a
+    /// refresh pressed while the list is still arriving throws away everything that request had not delivered yet
+    /// and asks Steam for the same servers a second time. This stores the filter as the pending search and lets
+    /// the running request finish: the game starts the pending one by itself once the list is complete, which is
+    /// the same wait it already performs, without the discarded answers.
+    /// </summary>
+    [HarmonyPatch]
+    internal static class ListRequestWaitPatch
+    {
+        /// <summary>The filter the game starts once the running request is done with.</summary>
+        private static readonly FieldInfo PendingField = AccessTools.Field(typeof(SteamLobby), "pendingSearch");
+
+        /// <summary>Whether the player-hosted list is still arriving, which vanilla waits for in the same way.</summary>
+        private static readonly FieldInfo PlayerHostedField = AccessTools.Field(
+            typeof(SteamLobby), "playerLobbyRefreshInProgress");
+
+        /// <summary>Whether the master list request is still running, which vanilla answers by cancelling it.</summary>
+        private static readonly PropertyInfo ServerProgressField = AccessTools.Property(
+            typeof(SteamLobby), "serverLobbiesRefreshInProgress");
+
+        [HarmonyTargetMethod]
+        private static MethodBase Target()
+        {
+            return AccessTools.Method(typeof(SteamLobby), "RequestLobbies");
+        }
+
+        [HarmonyPrefix]
+        private static bool Prefix(SteamLobby __instance, LobbySearchFilter filter)
+        {
+            try
+            {
+                if (__instance == null || PendingField == null || ServerProgressField == null)
+                {
+                    return true;
+                }
+
+                if (!(bool)ServerProgressField.GetValue(__instance, null))
+                {
+                    return true;
+                }
+
+                if (PlayerHostedField != null && (bool)PlayerHostedField.GetValue(__instance))
+                {
+                    return true;
+                }
+
+                PendingField.SetValue(__instance, (LobbySearchFilter?)filter);
+                Plugin.Verbose("The master list is still arriving, so the next search waits for it instead of "
+                    + "replacing it.");
+                return false;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogError("Could not queue the next search behind the running one: " + e);
+                return true;
+            }
+        }
+    }
 }
