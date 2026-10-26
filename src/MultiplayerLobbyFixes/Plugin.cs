@@ -16,7 +16,7 @@ namespace MultiplayerLobbyFixes
         public const string PluginName = "Multiplayer Lobby Fixes";
 
         /// <summary>Lives in three places: this constant, &lt;Version&gt; in the csproj, and version in meta.json.</summary>
-        public const string PluginVersion = "0.1.0";
+        public const string PluginVersion = "0.2.0";
 
         internal static ManualLogSource Log { get; private set; }
 

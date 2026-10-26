@@ -9,7 +9,7 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <DebugType>portable</DebugType>
     <WarningsAsErrors>false</WarningsAsErrors>
     <!-- Copy the built plugin into the game by default. Set false for CI / packaging builds. -->
