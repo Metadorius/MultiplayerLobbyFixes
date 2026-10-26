@@ -86,7 +86,7 @@ This mod doesn't aim to circumvent any protections or harm any player or service
 
 - **erjet** - help testing the Steam game joins
 - **Moroznik** - help testing the Steam game joins
-- **[Appulcake](https://github.com/Appulcake)** (Maelle) - the query flood and socket table report, and detailed feedback on the query handling
+- **[Appulcake](https://github.com/Appulcake)** (Maelle) - 0.1.0 review and detailed dev feedback
 
 ## Licence
 
