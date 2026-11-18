@@ -104,9 +104,9 @@ namespace MultiplayerLobbyFixes
         }
 
         /// <summary>
-        /// Draws the ping marker on a row, which the game has just written the ping of, or nothing when it has
-        /// none. A single-server refresh that is out shows the sync icon; otherwise a server the master list could
-        /// not reach keeps the warning triangle over whatever the row already says.
+        /// Draws the ping marker on a row. The cell is composed from the row's own ping and the marker state rather
+        /// than added to whatever is already there, so drawing it twice or drawing it after a pooled row was reused
+        /// cannot leave a glyph behind.
         /// </summary>
         internal static void DrawPing(LobbyListItem row)
         {
@@ -123,25 +123,33 @@ namespace MultiplayerLobbyFixes
                 return;
             }
 
+            var body = row.Ping != null ? row.Ping.Value + "ms" : string.Empty;
+
+            string glyph;
+            string reason;
             if (ServerQuery.IsAsking(lobby))
             {
-                if (!HasGlyph(ping.text))
-                {
-                    ping.text = LoadingIcon + ping.text;
-                }
-
-                SetHover(ping, ListOf(row), string.Empty);
-                return;
+                glyph = LoadingIcon;
+                reason = string.Empty;
             }
-
-            var unreachable = ServerBrowser.IsUnreachable(lobby);
-
-            if (unreachable && !HasGlyph(ping.text))
+            else if (ServerBrowser.IsUnreachable(lobby))
             {
-                ping.text = WarningIcon + ping.text;
+                glyph = WarningIcon;
+                reason = UnreachableText;
+            }
+            else
+            {
+                glyph = null;
+                reason = string.Empty;
             }
 
-            SetHover(ping, ListOf(row), unreachable ? UnreachableText : string.Empty);
+            var text = glyph != null ? glyph + body : body;
+            if (ping.text != text)
+            {
+                ping.text = text;
+            }
+
+            SetHover(ping, ListOf(row), reason);
         }
 
         /// <summary>
@@ -319,11 +327,6 @@ namespace MultiplayerLobbyFixes
             mission.text = glyph != null ? glyph + text : text;
 
             SetHover(mission, ListOf(row), reason);
-        }
-
-        private static bool HasGlyph(string text)
-        {
-            return text != null && (text.IndexOf('\ue002') >= 0 || text.IndexOf('\ue86a') >= 0);
         }
 
         /// <summary>The list a row belongs to, which is where the hover tooltip is cloned from.</summary>
