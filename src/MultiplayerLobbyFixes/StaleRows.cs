@@ -46,14 +46,9 @@ namespace MultiplayerLobbyFixes
         private const string LoadingIcon =
             "<color=#AEB8C8FF><size=80%><font=MaterialSymbolsSharp>\ue86a</font></size></color> ";
 
-        private const string UnreachableText =
-            "Did not answer this machine's status query, listed from Steam's master list. Ping and player counts "
-            + "may be out of date.";
+        private const string UnreachableText = "May be stale, no response to Steam's master list query";
 
-        private const string RulesWarningText = "Did not answer the latest rules query, so the mission and map may "
-            + "be out of date.";
-
-        private const string RulesLoadingText = "Asking this server for its rules.";
+        private const string RulesWarningText = "May be stale, no response to the latest rules query";
 
         private static readonly FieldInfo LobbyField = AccessTools.Field(typeof(LobbyListItem), "<lobby>k__BackingField");
 
@@ -163,8 +158,9 @@ namespace MultiplayerLobbyFixes
             }
             else if (lobby.RulesLoading)
             {
+                // A query that is out says nothing on hover, the way the old in-progress glyph did.
                 glyph = LoadingIcon;
-                reason = RulesLoadingText;
+                reason = string.Empty;
             }
             else
             {
@@ -344,7 +340,7 @@ namespace MultiplayerLobbyFixes
                 else if (lobby.RulesLoading)
                 {
                     glyph = LoadingIcon;
-                    reason = RulesLoadingText;
+                    reason = string.Empty;
                 }
                 else
                 {
