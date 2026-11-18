@@ -40,6 +40,12 @@ namespace MultiplayerLobbyFixes
         private static readonly FieldInfo CancelSourceField =
             AccessTools.Field(typeof(LobbyDetailsModal), "detailsOpenCancelSource");
 
+        private static readonly MethodInfo SetLoadedMethod =
+            AccessTools.PropertySetter(typeof(ServerLobbyInstance), "RulesLoaded");
+
+        private static readonly MethodInfo SetFailedMethod =
+            AccessTools.PropertySetter(typeof(ServerLobbyInstance), "RulesFailed");
+
         private static Button _button;
 
         private static LobbyDetailsModal _modal;
@@ -295,6 +301,13 @@ namespace MultiplayerLobbyFixes
                 {
                     try
                     {
+                        // The game asks a server for its rules once and never again: QueryServerRules returns
+                        // early while the entry says it already has them, which it does by the time the card has
+                        // been opened once. The flags are cleared so the ask goes out; the answers themselves are
+                        // left in place, so the card keeps its description until new ones arrive.
+                        SetLoadedMethod?.Invoke(lobby, new object[] { false });
+                        SetFailedMethod?.Invoke(lobby, new object[] { false });
+
                         manager.QueryServerRules(lobby, TokenOf(modal), () => RulesFetched(modal, lobby));
                     }
                     catch (Exception e)
