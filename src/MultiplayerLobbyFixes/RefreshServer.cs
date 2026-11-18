@@ -274,6 +274,12 @@ namespace MultiplayerLobbyFixes
                     return;
                 }
 
+                var manager = SteamLobby.instance;
+                if (manager == null)
+                {
+                    return;
+                }
+
                 var accepted = ServerQuery.Ask(lobby, copy => Fetched(modal, lobby, copy != null));
                 if (!accepted)
                 {
@@ -281,6 +287,21 @@ namespace MultiplayerLobbyFixes
                 }
 
                 _readyAt = Time.time + Plugin.RefreshCooldownSeconds.Value;
+
+                // Both asks go out together. The master list brings the name, counts, ping, map and start time;
+                // the rules query brings the mission name, the description and the workshop id, which the tags
+                // cannot carry. Neither waits on the other, and either answer reads the card.
+                if (!lobby.RulesLoading)
+                {
+                    try
+                    {
+                        manager.QueryServerRules(lobby, TokenOf(modal), () => RulesFetched(modal, lobby));
+                    }
+                    catch (Exception e)
+                    {
+                        Plugin.Log.LogError("Could not ask a server for its rules: " + e);
+                    }
+                }
 
                 // The row and the card both show the ask through the markers, which read the query's own state.
                 StaleRowPatch.Repaint(lobby);
@@ -292,36 +313,17 @@ namespace MultiplayerLobbyFixes
         }
 
         /// <summary>
-        /// Reads the window again once the master list has answered, and asks the server for its rules too.
-        ///
-        /// The master copy carries the tags, and nothing more: the description chunks and the workshop id never fit
-        /// in them, so those only ever arrive from a rules query. The entry keeps the last ones it reported, which
-        /// SetDetails puts back, so nothing on the card degrades while the answer is out; the rules query is what
-        /// freshens them. A server that did not answer the master list keeps its card as it is.
+        /// The master list answered, or did not. Either way the card is read from what the entry now holds: the
+        /// rules query is already out, and its own answer reads the card again.
         /// </summary>
         private static void Fetched(LobbyDetailsModal modal, ServerLobbyInstance lobby, bool answered)
         {
             StaleRowPatch.Repaint(lobby);
 
-            if (!answered)
+            if (answered)
             {
-                return;
+                Read(modal, lobby);
             }
-
-            var manager = SteamLobby.instance;
-            if (manager != null && !lobby.RulesLoading)
-            {
-                try
-                {
-                    manager.QueryServerRules(lobby, TokenOf(modal), () => RulesFetched(modal, lobby));
-                }
-                catch (Exception e)
-                {
-                    Plugin.Log.LogError("Could not ask a server for its rules: " + e);
-                }
-            }
-
-            Read(modal, lobby);
         }
 
         /// <summary>The rules answer landed, or did not: either way the card is read from what the entry now holds.</summary>
