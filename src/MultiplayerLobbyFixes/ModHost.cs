@@ -66,6 +66,7 @@ namespace MultiplayerLobbyFixes
                 var list = LobbyListFocus.Current;
                 if (list != null)
                 {
+                    StaleRowPatch.TickRows(list);
                     FullServerJoin.Tick(list);
                     LobbyRefreshButtonPatch.Tick(list);
                 }

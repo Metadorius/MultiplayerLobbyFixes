@@ -65,6 +65,13 @@ namespace MultiplayerLobbyFixes
 
         private static readonly FieldInfo AllLobbiesField = AccessTools.Field(typeof(LobbyList), "allLobbies");
 
+        /// <summary>
+        /// The marker state each row was last drawn with, by row. A row is redrawn when this changes, which is what
+        /// catches the state changes nothing tells us about: a rules query the game starts when a card opens, one
+        /// that settles later, and a server that gains or loses its unreachable mark.
+        /// </summary>
+        private static readonly Dictionary<LobbyListItem, int> Drawn = new Dictionary<LobbyListItem, int>();
+
         private static readonly FieldInfo HoverSourceField = AccessTools.Field(typeof(LobbyList), "TooManyPlayerHover");
 
         private static readonly FieldInfo HoverField = AccessTools.Field(typeof(ShowHoverText), "hover");
@@ -135,6 +142,96 @@ namespace MultiplayerLobbyFixes
             }
 
             SetHover(ping, ListOf(row), unreachable ? UnreachableText : string.Empty);
+        }
+
+        /// <summary>
+        /// Redraws any row whose marker state has changed since it was last drawn.
+        ///
+        /// The markers read state that changes without anyone telling this mod: opening a card starts a rules query,
+        /// that query settles on Steam's own callback, and the unreachable mark comes and goes with the master list.
+        /// Rather than hook every one of those, each row's state is compared with what was last drawn on it, and only
+        /// a row that actually differs is written. A browser of a hundred rows costs a few flag reads per row a
+        /// frame, and a write only when something really moved.
+        /// </summary>
+        internal static void TickRows(LobbyList list)
+        {
+            if (!Plugin.ShowLatestQueryStatus.Value || list == null || AllLobbiesField == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var rows = AllLobbiesField.GetValue(list) as Dictionary<LobbyInstance, LobbyListItem>;
+                if (rows == null)
+                {
+                    return;
+                }
+
+                if (Drawn.Count > rows.Count + 64)
+                {
+                    // Rows are pooled and reused, so a stale entry means nothing, but they should not pile up.
+                    Drawn.Clear();
+                }
+
+                foreach (var pair in rows)
+                {
+                    var row = pair.Value;
+                    var lobby = pair.Key as ServerLobbyInstance;
+                    if (row == null)
+                    {
+                        continue;
+                    }
+
+                    var state = StateOf(lobby);
+
+                    int drawn;
+                    if (Drawn.TryGetValue(row, out drawn) && drawn == state)
+                    {
+                        continue;
+                    }
+
+                    Drawn[row] = state;
+                    row.UpdatePing();
+                    DrawMission(row);
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogError("Could not refresh the server markers: " + e);
+            }
+        }
+
+        /// <summary>The marker state of a row, packed so two states can be compared in one go.</summary>
+        private static int StateOf(ServerLobbyInstance lobby)
+        {
+            if (lobby == null)
+            {
+                return 0;
+            }
+
+            var state = 0;
+            if (lobby.RulesLoading)
+            {
+                state |= 1;
+            }
+
+            if (lobby.RulesFailed)
+            {
+                state |= 2;
+            }
+
+            if (ServerBrowser.IsUnreachable(lobby))
+            {
+                state |= 4;
+            }
+
+            if (ServerQuery.IsAsking(lobby))
+            {
+                state |= 8;
+            }
+
+            return state;
         }
 
         /// <summary>
