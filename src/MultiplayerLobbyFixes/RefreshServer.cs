@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Threading;
 using HarmonyLib;
 using NuclearOption.Networking.Lobbies;
 using TMPro;
@@ -34,6 +35,9 @@ namespace MultiplayerLobbyFixes
 
         private static readonly MethodInfo MissionDetailsMethod =
             AccessTools.Method(typeof(LobbyDetailsModal), "UpdateMissionDetails");
+
+        private static readonly FieldInfo CancelSourceField =
+            AccessTools.Field(typeof(LobbyDetailsModal), "detailsOpenCancelSource");
 
         private static Button _button;
 
@@ -287,9 +291,12 @@ namespace MultiplayerLobbyFixes
         }
 
         /// <summary>
-        /// Reads the window again once the master list has answered: the mission, the map, the description and the
-        /// preview image all come from what the fresh copy says. A server that did not answer keeps its card, so
-        /// there is nothing to re-read.
+        /// Reads the window again once the master list has answered, and asks the server for its rules too.
+        ///
+        /// The master copy carries the tags, and nothing more: the description chunks and the workshop id never fit
+        /// in them, so those only ever arrive from a rules query. The entry keeps the last ones it reported, which
+        /// SetDetails puts back, so nothing on the card degrades while the answer is out; the rules query is what
+        /// freshens them. A server that did not answer the master list keeps its card as it is.
         /// </summary>
         private static void Fetched(LobbyDetailsModal modal, ServerLobbyInstance lobby, bool answered)
         {
@@ -300,6 +307,35 @@ namespace MultiplayerLobbyFixes
                 return;
             }
 
+            var manager = SteamLobby.instance;
+            if (manager != null && !lobby.RulesLoading)
+            {
+                try
+                {
+                    manager.QueryServerRules(lobby, TokenOf(modal), () => RulesFetched(modal, lobby));
+                }
+                catch (Exception e)
+                {
+                    Plugin.Log.LogError("Could not ask a server for its rules: " + e);
+                }
+            }
+
+            Read(modal, lobby);
+        }
+
+        /// <summary>The rules answer landed, or did not: either way the card is read from what the entry now holds.</summary>
+        private static void RulesFetched(LobbyDetailsModal modal, ServerLobbyInstance lobby)
+        {
+            StaleRowPatch.Repaint(lobby);
+            Read(modal, lobby);
+        }
+
+        /// <summary>
+        /// Reads the window again through the method its own open calls: the mission, the map, the description and
+        /// the preview image are all written there.
+        /// </summary>
+        private static void Read(LobbyDetailsModal modal, ServerLobbyInstance lobby)
+        {
             try
             {
                 // It checks that the window still shows this server before writing anything.
@@ -309,6 +345,18 @@ namespace MultiplayerLobbyFixes
             {
                 Plugin.Log.LogError("Could not read the details window again: " + e);
             }
+        }
+
+        /// <summary>
+        /// The window's own token, which cancels its queries when the window closes, so a press that is walked away
+        /// from does not leave a query running on Steam's side.
+        /// </summary>
+        private static CancellationToken TokenOf(LobbyDetailsModal modal)
+        {
+            var source = modal != null && CancelSourceField != null
+                ? CancelSourceField.GetValue(modal) as CancellationTokenSource
+                : null;
+            return source != null ? source.Token : CancellationToken.None;
         }
     }
 }

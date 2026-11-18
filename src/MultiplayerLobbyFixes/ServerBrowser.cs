@@ -131,21 +131,27 @@ namespace MultiplayerLobbyFixes
         ///
         /// A copy that carries values is believed as it is, so a server that really emptied out, changed its name
         /// or dropped its password still shows that. Only fields with nothing usable in them fall back.
+        ///
+        /// Returns whether the copy arrived with no game tags at all, which is what a server Steam could not reach
+        /// looks like. That is the one case where the rules the server last reported are worth putting back: a copy
+        /// that does carry tags is the server's current word, and resurrecting an old mission name over it would
+        /// show a mission the server has already left.
         /// </summary>
-        internal static void Repair(gameserveritem_t copy)
+        internal static bool Repair(gameserveritem_t copy)
         {
             if (copy == null)
             {
-                return;
+                return false;
             }
 
             var id = copy.m_steamID;
             if (!id.IsValid())
             {
-                return;
+                return false;
             }
 
             var replaced = new List<string>();
+            var cold = false;
 
             if (copy.m_nMaxPlayers <= 0)
             {
@@ -209,6 +215,8 @@ namespace MultiplayerLobbyFixes
                     copy.SetGameTags(knownTags);
                     replaced.Add("tags");
                 }
+
+                cold = true;
             }
             else
             {
@@ -231,6 +239,7 @@ namespace MultiplayerLobbyFixes
             }
 
             CountCopy(copy, replaced);
+            return cold;
         }
 
         /// <summary>How many copies the master list handed over since the last line, and what they said.</summary>
@@ -343,11 +352,12 @@ namespace MultiplayerLobbyFixes
         /// <summary>
         /// Fills in the rules a server last reported, for the keys a copy this time did not carry.
         ///
-        /// The map, mission, description, start time and password flag all live in the game tags, and a copy Steam
-        /// hands over for an unreachable server carries none. Repair puts the last tags back for those, and this is
-        /// the second half: a copy that arrives with fewer keys than the one before it, as a protocol or tag-limit
-        /// change can cause, gains the missing ones back instead of dropping columns off the row. Only gaps are
-        /// filled, so a fresh value always wins.
+        /// Two kinds of key live here. The Steam tags carry the map, mission, start time and password flag, and a
+        /// copy Steam hands over for an unreachable server carries none of them; Repair puts the last tags back,
+        /// and this fills any key the tags left out. The rules query carries the rest, the description chunks and
+        /// the workshop id included, and nothing else does: the tags are capped at 128 bytes, so the description
+        /// never fits in them. SetDetails clears the dictionary before it parses the tags, which is why the last
+        /// answer is kept in LastRules and put back here. Only gaps are filled, so a fresh value always wins.
         /// </summary>
         internal static void KeepRules(ServerLobbyInstance lobby)
         {
@@ -365,12 +375,7 @@ namespace MultiplayerLobbyFixes
                     return;
                 }
 
-                Dictionary<string, string> known;
-                if (!LastRules.TryGetValue(id.m_SteamID, out known))
-                {
-                    known = new Dictionary<string, string>();
-                    LastRules[id.m_SteamID] = known;
-                }
+                var known = Known(id);
 
                 foreach (var pair in known)
                 {
@@ -380,6 +385,36 @@ namespace MultiplayerLobbyFixes
                     }
                 }
 
+                Remember(lobby);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogError("Could not keep what a server reported: " + e);
+            }
+        }
+
+        /// <summary>
+        /// Remembers every rule a server currently holds. The rules query's answers come in through SetRule one key
+        /// at a time, and they are the only source of the description and the workshop id; SetRule converts the raw
+        /// key it is handed, so the entry's own dictionary is what is read here rather than the argument.
+        /// </summary>
+        internal static void Remember(ServerLobbyInstance lobby)
+        {
+            try
+            {
+                var id = IdOf(lobby);
+                if (!id.IsValid() || RulesField == null)
+                {
+                    return;
+                }
+
+                var live = RulesField.GetValue(lobby) as Dictionary<string, string>;
+                if (live == null)
+                {
+                    return;
+                }
+
+                var known = Known(id);
                 foreach (var pair in live)
                 {
                     known[pair.Key] = pair.Value;
@@ -387,8 +422,21 @@ namespace MultiplayerLobbyFixes
             }
             catch (Exception e)
             {
-                Plugin.Log.LogError("Could not keep what a server reported: " + e);
+                Plugin.Log.LogError("Could not keep a rule a server reported: " + e);
             }
+        }
+
+        /// <summary>The stored rules for a server, made on first use.</summary>
+        private static Dictionary<string, string> Known(CSteamID id)
+        {
+            Dictionary<string, string> known;
+            if (!LastRules.TryGetValue(id.m_SteamID, out known))
+            {
+                known = new Dictionary<string, string>();
+                LastRules[id.m_SteamID] = known;
+            }
+
+            return known;
         }
 
         /// <summary>
@@ -773,18 +821,20 @@ namespace MultiplayerLobbyFixes
     }
 
     /// <summary>
-    /// Repairs the copy of a server Steam hands over before vanilla reads it, and fills in the rules it reported
-    /// afterwards, which are the two halves of never letting a row lose what it already knew.
+    /// Repairs the copy of a server Steam hands over before vanilla reads it, and puts back the rules the server
+    /// last reported when that copy came with nothing, which are the two halves of never letting a row lose what it
+    /// already knew.
     /// </summary>
     [HarmonyPatch(typeof(ServerLobbyInstance), nameof(ServerLobbyInstance.SetDetails))]
     internal static class ServerDetailsPatch
     {
         [HarmonyPrefix]
-        private static void Prefix(gameserveritem_t details)
+        private static void Prefix(gameserveritem_t details, out bool __state)
         {
+            __state = false;
             try
             {
-                ServerBrowser.Repair(details);
+                __state = ServerBrowser.Repair(details);
             }
             catch (Exception e)
             {
@@ -793,9 +843,12 @@ namespace MultiplayerLobbyFixes
         }
 
         [HarmonyPostfix]
-        private static void Postfix(ServerLobbyInstance __instance)
+        private static void Postfix(ServerLobbyInstance __instance, bool __state)
         {
-            ServerBrowser.KeepRules(__instance);
+            if (__state)
+            {
+                ServerBrowser.KeepRules(__instance);
+            }
         }
     }
 
@@ -811,6 +864,20 @@ namespace MultiplayerLobbyFixes
         private static void Postfix(ServerLobbyInstance __instance, ref string __result)
         {
             __result = ServerBrowser.NameFor(ServerBrowser.IdOf(__instance), __result);
+        }
+    }
+
+    /// <summary>
+    /// Remembers every rule a server reports, which is where the description and the workshop id come from: they
+    /// cannot fit in the Steam tags, so a rules answer is the only place they ever arrive.
+    /// </summary>
+    [HarmonyPatch(typeof(ServerLobbyInstance), nameof(ServerLobbyInstance.SetRule))]
+    internal static class ServerRulePatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(ServerLobbyInstance __instance)
+        {
+            ServerBrowser.Remember(__instance);
         }
     }
 
