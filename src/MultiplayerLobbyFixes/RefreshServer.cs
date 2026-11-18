@@ -295,8 +295,9 @@ namespace MultiplayerLobbyFixes
                 _readyAt = Time.time + Plugin.RefreshCooldownSeconds.Value;
 
                 // Both asks go out together. The master list brings the name, counts, ping, map and start time;
-                // the rules query brings the mission name, the description and the workshop id, which the tags
-                // cannot carry. Neither waits on the other, and either answer reads the card.
+                // the rules query brings the mission name, the description, the workshop id and the password's
+                // short hash, which the tags cannot carry. Neither waits on the other, and either answer reads
+                // the card.
                 if (!lobby.RulesLoading)
                 {
                     try
@@ -305,10 +306,18 @@ namespace MultiplayerLobbyFixes
                         // early while the entry says it already has them, which it does by the time the card has
                         // been opened once. The flags are cleared so the ask goes out; the answers themselves are
                         // left in place, so the card keeps its description until new ones arrive.
+                        //
+                        // RulesLoaded is what a join's password pre-check reads, through the short hash those
+                        // answers hold, so a query that fails puts the flag back: the stale hash still matches the
+                        // password the server really has, and a join refused for a missing hash would be wrong.
+                        var hadRules = lobby.RulesLoaded;
                         SetLoadedMethod?.Invoke(lobby, new object[] { false });
                         SetFailedMethod?.Invoke(lobby, new object[] { false });
 
-                        manager.QueryServerRules(lobby, TokenOf(modal), () => RulesFetched(modal, lobby));
+                        manager.QueryServerRules(
+                            lobby,
+                            TokenOf(modal),
+                            () => RulesFetched(modal, lobby, hadRules));
                     }
                     catch (Exception e)
                     {
@@ -339,9 +348,21 @@ namespace MultiplayerLobbyFixes
             }
         }
 
-        /// <summary>The rules answer landed, or did not: either way the card is read from what the entry now holds.</summary>
-        private static void RulesFetched(LobbyDetailsModal modal, ServerLobbyInstance lobby)
+        /// <summary>
+        /// The rules answer landed, or did not: either way the card is read from what the entry now holds. A failed
+        /// answer puts back the loaded flag the press cleared, because the answers it already had are still there
+        /// and are what a join's password pre-check reads.
+        /// </summary>
+        private static void RulesFetched(LobbyDetailsModal modal, ServerLobbyInstance lobby, bool hadRules)
         {
+            if (hadRules && lobby.RulesFailed && !lobby.RulesLoaded)
+            {
+                SetLoadedMethod?.Invoke(lobby, new object[] { true });
+                Plugin.Verbose(
+                    "The rules query for " + lobby.LobbyNameSanitized + " failed, so the answers it already had "
+                    + "stay in use.");
+            }
+
             StaleRowPatch.Repaint(lobby);
             Read(modal, lobby);
         }
