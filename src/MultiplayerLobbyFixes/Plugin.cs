@@ -151,6 +151,9 @@ namespace MultiplayerLobbyFixes
                 + ", join attempt=" + PatchInfo(AccessTools.Method(typeof(SteamLobby), nameof(SteamLobby.TryJoinLobby)))
                 + ", join request=" + PatchInfo(AccessTools.Method(typeof(SteamLobby), "OnJoinRequest"))
                 + ", join rules=" + PatchInfo(AccessTools.Method(queryType, "RulesFailedToRespond"))
+                + ", instant join=" + PatchInfo(AccessTools.Method(typeof(LobbyDetailsModal), "Join"))
+                + ", password precheck=" + PatchInfo(AccessTools.Method(
+                    typeof(LobbyPassword), nameof(LobbyPassword.TestShortPassword)))
                 + ", join failure=" + PatchInfo(AccessTools.Method(
                     typeof(NetworkManagerNuclearOption), "ClientDisconnected"))
                 + " | listUnreachableServers=" + ListUnreachableServers.Value
