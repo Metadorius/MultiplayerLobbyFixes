@@ -16,12 +16,12 @@ namespace MultiplayerLobbyFixes
     ///
     /// The decision is made inside the modal's per-second async refresh, which compiles to a struct state machine
     /// whose MoveNext takes its receiver by reference. Harmony cannot wrap that method on Mono (it emits invalid
-    /// IL), so this re-enables the button from the lobby list's own Update instead, which runs while the browser is
-    /// open. Vanilla gets one frame of a disabled button per second, which the eye does not catch, and the button is
-    /// only touched when vanilla has just turned it off.
+    /// IL), and the list no longer has an Update of its own to ride, so the button is re-enabled from the mod's
+    /// own per-frame host instead, which runs while the browser is open. Vanilla gets one frame of a disabled
+    /// button per second, which the eye does not catch, and the button is only touched when vanilla has just
+    /// turned it off.
     /// </summary>
-    [HarmonyPatch(typeof(LobbyList), "Update")]
-    internal static class FullServerJoinPatch
+    internal static class FullServerJoin
     {
         private static readonly FieldInfo PopupField = AccessTools.Field(typeof(LobbyList), "lobbyPopup");
 
@@ -29,18 +29,15 @@ namespace MultiplayerLobbyFixes
 
         private static readonly FieldInfo JoinButtonField = AccessTools.Field(typeof(LobbyDetailsModal), "joinButton");
 
-        [HarmonyPostfix]
-        private static void Postfix(LobbyList __instance)
+        internal static void Tick(LobbyList list)
         {
-            if (!Plugin.JoinFullServers.Value
-                || PopupField == null
-                || LobbyField == null
+            if (!Plugin.JoinFullServers.Value || list == null || PopupField == null || LobbyField == null
                 || JoinButtonField == null)
             {
                 return;
             }
 
-            var modal = PopupField.GetValue(__instance) as LobbyDetailsModal;
+            var modal = PopupField.GetValue(list) as LobbyDetailsModal;
             if (modal == null)
             {
                 return;

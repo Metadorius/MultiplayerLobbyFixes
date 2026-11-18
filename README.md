@@ -1,9 +1,15 @@
 # Multiplayer Lobby Fixes
 
-A mod that fixes the server list (best-effort until devs fix it for real), overhauls it and the filter list, and fixes all known to me issues with Steam joins.
+A mod that keeps the server browser honest about servers it cannot reach, and fixes all known to me issues with Steam joins.
 
 ![The server browser: the servers listed with their markers and the filter list](docs/media/serverlist.gif)
 ![The details window, with its own Refresh button next to Join](docs/media/serverrefresh.gif)
+
+## What 0.34.6 changed
+
+The game reworked its server list communication. A refresh is now one master list request: each server's mission, map, player count, password flag and start time arrive inside the Steam game tags of its entry, and its ping comes with the entry's own details. Nothing is queried per server while the browser is open, servers no longer get their rows wiped by a refresh, and the list filters locally.
+
+That removed most of what this mod used to do: the query queue and its rate limit, the local filter takeover, keeping rows through a refresh, the keep-the-list-on-refresh and keep-the-cache options, and the per-server ping markers. What is left is what the game still does not do.
 
 ## Changes
 
@@ -11,44 +17,22 @@ Many of those things have configurations if you have BepInEx config manager inst
 
 Please note that most of the changes only apply to *dedicated servers*, as that's where the issues were.
 
-### Changes
-
-- The server browser now shows the dedicated servers ASAP regardless of whether the game/Steam thinks they're reachable (cause they frequently are despite queries not going through).
-  - The servers which were not reached are not re-pinged automatically to save queries.
-- Nothing clears the server list anymore (because Steam quickly stops returning you the server list because of rate limit or w/e), including `🔃 Refresh` button, which now just appends/amends (if the entry has legit info) the server entries.
-  - A refresh makes all the servers in the list refresh regardless if they came in an answer; if some queries are already in flight - they are not requeried.
-- A `🔃 Refresh` pressed while Steam is still returning the master list now lets that list finish instead of cancelling it and starting over, so the rest of the entries are not thrown away.
-  - The servers survive leaving the multiplayer screen and coming back, too.
-- If a server entry receives proper piece of info (name, player count, etc), a bogus piece of info (0/0 player count) won't ever replace it anymore.
-- Added a per-server **`🔃 Refresh` button** in the detailed server info.
-- Added markers of state of the per-server data:
-  - 4 states:
-    - ⚠️ icon for possibly stale information (request wasn't answered, or answered with nothing usable), with a clarification in a tooltip,
-    - static 🔃 icon for a refresh that is queued and hasn't gone out yet;
-    - animated 🔃 icon for a query in progress;
-    - no icon - fresh info
-  - shown in:
-    - server list
-    - detailed info card
-  - shown for (currently omitting master list request), besides the text:
-    - server rules query (in mission field)
-    - server status query (in ping field)
+- A dedicated server whose query port does not answer this machine is listed anyway, from the copy Steam's master list handed over, instead of vanishing with a line in the log. Such servers are often reachable through Steam even when a direct query fails.
+  - Its ping stays blank and its row keeps a warning triangle with a tooltip, and the mark comes off as soon as the server answers anything.
+- If a server entry receives a proper piece of info (name, player count, password flag, ping), a bogus piece of info won't replace it anymore: Steam answers for a server it could not reach with zeroes and an address where the name was, and the game writes those straight into the entry.
+- Added a per-server **`🔃 Refresh` button** in the details window, which asks that one server for its rules again: the mission, the map, the description and the duration. The game only asks once per entry, so a mission that changed, or a rules query that failed, had no way back.
+- Added markers of server state, on the list and in the details window:
+  - ⚠️ for a server the master list could not reach (ping column) and for a rules query that came back empty (mission cell), with a clarification in a tooltip,
+  - a sync icon while a rules query is still out,
+  - nothing for fresh info.
 - The `Join` button is not grayed out anymore to be able to join to "0/0" servers (the legit full server will refuse a join anyway).
-- Filters are now fully local and never requery.
-- Queries are throttled by default to not hammer the servers or Steam.
-  - There is a setting to control the speed.
-  - A refresh cancels its own two queries when a newer ask replaces it or when it finishes, so nothing is left running on Steam's side.
-  - A query the game cancels while it still waits in the queue never goes out.
-- Servers listed because Steam's master list could not reach them are held out of the game's ping loop, which would otherwise ask those silent hosts again on every pass and hold a socket per attempt until the client's socket set runs out and later refreshes come back nearly empty; one of them answering anything, or a master list that reaches it, puts it back in the loop.
 - `Join Game` from Steam (and CLI) now properly works in all cases:
-  - the redundant queries/checks were removed or are skipped if they do some miniscule use (in future may be skipped completely), actually joining the game is the first priority, which makes it work for servers better,
-  - the queries (both joining player and server lobbies) are made twice because for some reason the first queries are usually refused by Steam,
-  - fixed `Join Game` not working from desktop because of `+join_lobby` being passed instead of `-joinLobby` (unsure if some mod issue or vanilla),
+  - the redundant queries/checks were removed or are skipped if they do some miniscule use, actually joining the game is the first priority, which makes it work for servers better,
+  - the queries are made twice because for some reason the first queries are usually refused by Steam,
+  - fixed `Join Game` not working from desktop because of `+join_lobby` being passed instead of `-joinLobby`,
   - implemented `Join Game` support from when you're already in Nuclear Option (the game had no handling for this whatsoever apparently), with full "leave current screen safely" handling by the game;
 - A join that fails outside the server browser (a Steam invite, the launch argument) now shows why, "Server full" and the rest, instead of leaving the join overlay at "Connecting via Steam"; the game shows those reasons only from inside the browser.
   - A join whose lobby data Steam never sends is given up on with the game's own "Lobby no longer exists or Steam is unavailable", not waited on forever.
-- Ping queries no longer discard every other status info piece (like current player count) and properly update them.
-- Changed lobby info now doesn't get stuck on the same position and is sorted correctly.
 
 ## Download and install
 

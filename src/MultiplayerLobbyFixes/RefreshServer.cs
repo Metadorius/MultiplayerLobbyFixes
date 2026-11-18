@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Threading;
 using HarmonyLib;
 using NuclearOption.Networking.Lobbies;
 using TMPro;
@@ -12,14 +13,16 @@ namespace MultiplayerLobbyFixes
 {
     /// <summary>
     /// Puts a Refresh button in the server details window, immediately left of Join, which asks that one server for
-    /// its rules and its own details again: the mission, the map, the description, the duration, the name, the player
-    /// counts and the ping. Two queries, for the server the player is looking at, instead of a full refresh that
-    /// re-asks every server and still spends a query on each.
+    /// its rules again: the mission, the map, the description and the duration.
+    ///
+    /// Since 0.34.6 a server's rules are only asked for when the window opens, and only if it does not already have
+    /// an answer. That answer is cached on the entry for as long as the entry lives, so a server whose mission
+    /// changed, or whose rules failed the first time, has no way to be asked again. This button is that way: it
+    /// forgets the cached answer, asks again, and reads the window again when it lands, through the same method the
+    /// game's own open uses.
     ///
     /// The button is a copy of the Join button, so it lays out like the window's own buttons, dressed in the colours
-    /// and the icon of the browser's refresh button, with the game's listeners taken off it. When the answers land,
-    /// the window is reopened through the game's own Show, which is what makes it read the texts, the uptime and the
-    /// preview image again.
+    /// and the icon of the browser's refresh button, with the game's listeners taken off it.
     /// </summary>
     [HarmonyPatch(typeof(LobbyDetailsModal), "Show")]
     internal static class LobbyRefreshButtonPatch
@@ -30,7 +33,21 @@ namespace MultiplayerLobbyFixes
 
         private static readonly FieldInfo RefreshField = AccessTools.Field(typeof(LobbyList), "refreshButton");
 
-        private static readonly MethodInfo HideMethod = AccessTools.Method(typeof(LobbyDetailsModal), "Hide");
+        private static readonly FieldInfo CancelSourceField =
+            AccessTools.Field(typeof(LobbyDetailsModal), "detailsOpenCancelSource");
+
+        private static readonly FieldInfo RulesField = AccessTools.Field(typeof(ServerLobbyInstance), "rules");
+
+        private static readonly MethodInfo SetLoadedMethod =
+            AccessTools.PropertySetter(typeof(ServerLobbyInstance), "RulesLoaded");
+
+        private static readonly MethodInfo SetFailedMethod =
+            AccessTools.PropertySetter(typeof(ServerLobbyInstance), "RulesFailed");
+
+        private static readonly MethodInfo FetchedMethod = AccessTools.Method(typeof(LobbyDetailsModal), "OnRulesFetched");
+
+        /// <summary>When each server was last asked, so a held down button cannot spend a query a frame.</summary>
+        private static readonly Dictionary<ulong, float> AskedAt = new Dictionary<ulong, float>();
 
         private static Button _button;
 
@@ -65,10 +82,12 @@ namespace MultiplayerLobbyFixes
                 return;
             }
 
+            _modal = modal;
+
             if (_button == null)
             {
                 var copy = UnityEngine.Object.Instantiate(join.gameObject, join.transform.parent);
-copy.name = "MultiplayerLobbyFixesRefreshServer";
+                copy.name = "MultiplayerLobbyFixesRefreshServer";
 
                 _button = copy.GetComponent<Button>();
                 if (_button == null)
@@ -86,7 +105,6 @@ copy.name = "MultiplayerLobbyFixesRefreshServer";
 
                 Dress(_button, list);
 
-                _modal = modal;
                 _button.onClick.AddListener(new UnityAction(Clicked));
                 Plugin.Verbose("Added the refresh button to the server details window.");
             }
@@ -229,15 +247,52 @@ copy.name = "MultiplayerLobbyFixesRefreshServer";
         {
             try
             {
-                var lobby = _modal != null && LobbyField != null
-                    ? LobbyField.GetValue(_modal) as ServerLobbyInstance
+                var modal = _modal;
+                var lobby = modal != null && LobbyField != null
+                    ? LobbyField.GetValue(modal) as ServerLobbyInstance
                     : null;
-                if (lobby == null)
+                var manager = SteamLobby.instance;
+                if (lobby == null || manager == null)
                 {
                     return;
                 }
 
-                ServerBrowser.RefreshServer(lobby, () => Reopen(lobby));
+                var id = ServerBrowser.IdOf(lobby);
+                if (!id.IsValid())
+                {
+                    return;
+                }
+
+                if (lobby.RulesLoading)
+                {
+                    Plugin.Verbose("A rules query for this server is already out.");
+                    return;
+                }
+
+                float askedAt;
+                if (AskedAt.TryGetValue(id.m_SteamID, out askedAt)
+                    && Time.time - askedAt < Plugin.RefreshCooldownSeconds.Value)
+                {
+                    Plugin.Verbose("This server was asked for its rules a moment ago, so the press is ignored.");
+                    return;
+                }
+
+                Remember(id.m_SteamID);
+
+                // The game only asks a server whose rules it does not already hold, so the cached answer is
+                // forgotten first. Both flags go with it: a failed answer would otherwise keep the card showing
+                // the old mission next to a warning that says it is not current.
+                var rules = RulesField != null ? RulesField.GetValue(lobby) as Dictionary<string, string> : null;
+                if (rules != null)
+                {
+                    rules.Clear();
+                }
+
+                SetLoadedMethod?.Invoke(lobby, new object[] { false });
+                SetFailedMethod?.Invoke(lobby, new object[] { false });
+
+                manager.QueryServerRules(lobby, TokenOf(modal), () => Fetched(modal, lobby));
+                Plugin.Verbose("Asked " + lobby.LobbyNameSanitized + " for its rules again.");
             }
             catch (Exception e)
             {
@@ -245,30 +300,42 @@ copy.name = "MultiplayerLobbyFixesRefreshServer";
             }
         }
 
-        /// <summary>
-        /// Reopens the window through the game's own Show, which is what re-reads the texts, the uptime and the
-        /// preview image; the loop behind it captured the uptime when it started, so it cannot be corrected in place.
-        /// </summary>
-        private static void Reopen(ServerLobbyInstance lobby)
+        private static void Remember(ulong id)
         {
-            if (_modal == null || _list == null || LobbyField == null || HideMethod == null)
+            if (AskedAt.Count > 256)
             {
-                return;
+                AskedAt.Clear();
             }
 
-            if (!ReferenceEquals(LobbyField.GetValue(_modal), lobby))
-            {
-                return;
-            }
+            AskedAt[id] = Time.time;
+        }
 
+        /// <summary>
+        /// The window's own token, which cancels its queries when the window closes, so a press that is walked away
+        /// from does not leave a query running on Steam's side.
+        /// </summary>
+        private static CancellationToken TokenOf(LobbyDetailsModal modal)
+        {
+            var source = modal != null && CancelSourceField != null
+                ? CancelSourceField.GetValue(modal) as CancellationTokenSource
+                : null;
+            return source != null ? source.Token : CancellationToken.None;
+        }
+
+        /// <summary>
+        /// Reads the window again through the method its own Show calls when the first answer lands: the mission,
+        /// the map, the description and the preview image are all written there.
+        /// </summary>
+        private static void Fetched(LobbyDetailsModal modal, ServerLobbyInstance lobby)
+        {
             try
             {
-                HideMethod.Invoke(_modal, null);
-                _modal.Show(_list, lobby);
+                // It checks that the window is still on this server before writing anything.
+                FetchedMethod?.Invoke(modal, new object[] { lobby });
             }
             catch (Exception e)
             {
-                Plugin.Log.LogError("Could not reopen the server details window: " + e);
+                Plugin.Log.LogError("Could not read the details window again: " + e);
             }
         }
     }

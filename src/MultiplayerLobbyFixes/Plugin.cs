@@ -16,46 +16,24 @@ namespace MultiplayerLobbyFixes
         public const string PluginName = "Multiplayer Lobby Fixes";
 
         /// <summary>Lives in three places: this constant, &lt;Version&gt; in the csproj, and version in meta.json.</summary>
-        public const string PluginVersion = "0.2.0";
+        public const string PluginVersion = "0.3.0";
 
         internal static ManualLogSource Log { get; private set; }
 
         /// <summary>Whether dedicated servers this machine cannot query are listed in the server browser anyway.</summary>
         internal static ConfigEntry<bool> ListUnreachableServers { get; private set; }
 
-        /// <summary>Whether a server is listed as soon as Steam's master list returns it, before it answers.</summary>
-        internal static ConfigEntry<bool> ListBeforeAnswering { get; private set; }
-
-        /// <summary>Whether a refresh keeps the rows already on screen instead of clearing the list first.</summary>
-        internal static ConfigEntry<bool> KeepServersListed { get; private set; }
-
         /// <summary>Whether the details window's Join button stays clickable when the player count says full.</summary>
         internal static ConfigEntry<bool> JoinFullServers { get; private set; }
 
-        /// <summary>Whether the state of each server's latest query is shown on its row.</summary>
+        /// <summary>Whether the state of each server's rules query is shown on its row.</summary>
         internal static ConfigEntry<bool> ShowLatestQueryStatus { get; private set; }
 
-        /// <summary>Whether the details window gets a button that asks that one server for its rules and its status again.</summary>
+        /// <summary>Whether the details window gets a button that asks that one server for its rules again.</summary>
         internal static ConfigEntry<bool> RefreshServerButton { get; private set; }
 
-        /// <summary>Whether the per-server queries go through the queue instead of out at once.</summary>
-        internal static ConfigEntry<bool> ThrottleQueries { get; private set; }
-
-        /// <summary>How many queries a second the mod lets go out, the game's own and its own asks together.</summary>
-        internal static ConfigEntry<float> QueriesPerSecond { get; private set; }
-
-        /// <summary>The one rate every query the mod causes is spent from.</summary>
-        internal static readonly Rate Queries = new Rate(
-            () => QueriesPerSecond != null ? QueriesPerSecond.Value : 120f);
-
-        /// <summary>How long one server's refresh is left alone before another may start for it.</summary>
+        /// <summary>How long one server's rules are left alone before the card's button may ask again.</summary>
         internal static ConfigEntry<float> RefreshCooldownSeconds { get; private set; }
-
-        /// <summary>When a refresh whose answers never came is given up on.</summary>
-        internal static ConfigEntry<float> RefreshTimeoutSeconds { get; private set; }
-
-        /// <summary>When a query that never called back is written off, so its marker stops waiting.</summary>
-        internal static ConfigEntry<float> MarkerTimeoutSeconds { get; private set; }
 
         internal static ConfigEntry<bool> VerboseLogging { get; private set; }
 
@@ -66,23 +44,12 @@ namespace MultiplayerLobbyFixes
             Log = Logger;
 
             ListUnreachableServers = Config.Bind("Server browser", "ListUnreachableServers", true,
-                "Steam's master list is asked for servers, and each one is then queried from this machine for its "
-                + "rules and its ping. A dedicated server that answers neither is dropped from the browser; with "
-                + "this on it is listed anyway, with a blank ping and nothing in the mission, map, duration and "
-                + "player columns, and can still be joined if it is reachable through Steam. Player hosted games "
-                + "are listed from Steam's lobby data and are unaffected by this setting.");
-
-            ListBeforeAnswering = Config.Bind("Server browser", "ListBeforeAnswering", true,
-                "List a server as soon as Steam's master list returns it, instead of waiting for the rules query "
-                + "that fills in its mission, map and player count. The row starts with the name, player count and "
-                + "password flag the master list holds, and fills in as answers arrive, or keeps the last mission, "
-                + "map and start time it answered with.");
-
-            KeepServersListed = Config.Bind("Server browser", "KeepServersListed", true,
-                "Keep the rows already on screen when you refresh, instead of clearing the list and adding back only "
-                + "the servers that answer, and keep the servers themselves when you leave the multiplayer screen "
-                + "and come back to it. A refresh that returns nothing then leaves the list as it was, rather than "
-                + "emptying it. Changing a filter still clears the list.");
+                "Steam's master list returns a server, but its own query port does not answer from this machine, "
+                + "so the game drops it and only writes a line in the log. With this on, such a server is listed "
+                + "anyway, built from the copy Steam handed over: its name, player count and password flag, plus "
+                + "the map and mission its Steam tags carry. Its ping stays blank and its row keeps a warning "
+                + "triangle, and joining it works whenever Steam can reach it. Player hosted games are listed from "
+                + "Steam's lobby data and are not affected.");
 
             JoinFullServers = Config.Bind("Server browser", "JoinFullServers", true,
                 "Leave the Join button in the server details window clickable when the player count says the server "
@@ -90,48 +57,20 @@ namespace MultiplayerLobbyFixes
                 + "server reading 32/32 often has room. A server that really is full refuses the join itself.");
 
             ShowLatestQueryStatus = Config.Bind("Server browser", "ShowLatestQueryStatus", true,
-                "Show the ping query's state in the ping column: a pulsing icon while a query is waiting for an "
-                + "answer, and a warning triangle with a tooltip once the last query came back empty. Servers the "
-                + "ping loop never asks, like the unreachable ones listed from the master list, keep the triangle.");
+                "Mark a row whose server is not answering: a warning triangle in the ping column when the master "
+                + "list could not reach it, and one in the mission cell when its rules query failed or is still "
+                + "out. The same marks appear in the details window. A server with nothing wrong shows nothing.");
 
             RefreshServerButton = Config.Bind("Server browser", "RefreshServerButton", true,
-                "Add a Refresh button to the server details window, left of Join, which asks that one server for its "
-                + "rules and its status again: the mission, the map, the description, the duration, the player count "
-                + "and the ping, without touching the rest of the list. Two queries per press.");
-
-            ThrottleQueries = Config.Bind("Server browser", "ThrottleQueries", true,
-                "Hold the game's per-server queries in a queue and start them one at a time, instead of letting a "
-                + "refresh start them all at once; the game's own ping loop waits in the queue too. A query the "
-                + "game cancels while it waits is dropped. With this off every query starts at once.");
-
-            QueriesPerSecond = Config.Bind("Server browser", "QueriesPerSecond", 120f,
-                new ConfigDescription(
-                    "How many queries a second the mod lets go out, the game's held queries and its own asks "
-                    + "together. Each frame takes what its own time is worth, worked out from the smoothed frame "
-                    + "time and capped by the engine's maximum frame time, so one long frame cannot spend the whole "
-                    + "queue. Lower it to be gentler on servers and on Steam, at the cost of a refresh press taking "
-                    + "longer.",
-                    new AcceptableValueRange<float>(1f, 1000f)));
+                "Add a Refresh button to the server details window, left of Join, which asks that one server for "
+                + "its rules again: the mission, the map, the description and the duration. It reads the card "
+                + "again when the answer lands, and does nothing to the rest of the list.");
 
             RefreshCooldownSeconds = Config.Bind("Server browser", "RefreshCooldownSeconds", 3f,
                 new ConfigDescription(
-                    "How long one server's refresh is left alone before another may start for it. A second press "
-                    + "within that window is refused: the first one is still out, and asking again would spend a "
-                    + "second pair of queries on the same server.",
+                    "How long one server's rules are left alone after the card's Refresh button asked for them, so "
+                    + "a held down button cannot spend a query a frame on the same server.",
                     new AcceptableValueRange<float>(0f, 60f)));
-
-            RefreshTimeoutSeconds = Config.Bind("Server browser", "RefreshTimeoutSeconds", 10f,
-                new ConfigDescription(
-                    "When a refresh whose answers never came is given up on. Its unanswered queries are cancelled "
-                    + "then, and the row keeps whatever it already had. A live server usually answers in well under "
-                    + "a second.",
-                    new AcceptableValueRange<float>(1f, 120f)));
-
-            MarkerTimeoutSeconds = Config.Bind("Server browser", "MarkerTimeoutSeconds", 10f,
-                new ConfigDescription(
-                    "When a query that never called back is written off, which is what stops a row's marker from "
-                    + "waiting forever on a server Steam forgot about.",
-                    new AcceptableValueRange<float>(1f, 120f)));
 
             VerboseLogging = Config.Bind("Diagnostics", "VerboseLogging", true,
                 "Log what the browser and the Steam joins are doing.");
@@ -177,96 +116,47 @@ namespace MultiplayerLobbyFixes
             }
         }
 
-        /// <summary>Startup check so a silent no-op is distinguishable from a broken patch.</summary>
+        /// <summary>
+        /// Startup check so a silent no-op is distinguishable from a broken patch. The patches are listed by the
+        /// method they land on, because HarmonyX resolves arguments by name and a game-side rename loses one.
+        /// </summary>
         private static void ReportPatchState()
         {
-            // The patches are listed by the method they land on, because the point is to tell a silent no-op from
-            // a patch that never applied. HarmonyX resolves arguments by name, so a game-side rename loses one.
-            var listFailureInfo = PatchInfo(AccessTools.Method(
-                AccessTools.Inner(typeof(SteamLobby), "ServerListRequest"), "OnServerFailedToRespond"));
-            var rulesFailureInfo = PatchInfo(AccessTools.Method(
-                AccessTools.Inner(typeof(SteamLobby), "SearchQuery"), "RulesFailedToRespond"));
-            var rulesAnswerTarget = AccessTools.Method(
-                AccessTools.Inner(typeof(SteamLobby), "SearchQuery"), "RulesRefreshComplete");
-            var rulesAnswerInfo = rulesAnswerTarget != null ? PatchProcessor.GetPatchInfo(rulesAnswerTarget) : null;
-            var pingInfo = PatchInfo(AccessTools.Method(
-                typeof(ServerLobbyInstance), nameof(ServerLobbyInstance.CalculatePing)));
-            var detailsInfo = PatchInfo(AccessTools.Method(
-                typeof(ServerLobbyInstance), nameof(ServerLobbyInstance.SetDetails)));
-            var refreshInfo = PatchInfo(AccessTools.Method(typeof(LobbyDetailsModal), "Show"));
-            var keepRowsInfo = PatchInfo(AccessTools.Method(typeof(LobbyList), "RefreshLobbyListCleared"));
-            var lobbyUpdateTarget = AccessTools.Method(typeof(LobbyList), "Update");
-            var lobbyUpdateInfo = lobbyUpdateTarget != null ? PatchProcessor.GetPatchInfo(lobbyUpdateTarget) : null;
-            var resortDataInfo = PatchInfo(AccessTools.Method(typeof(LobbyList), "OnLobbyDataUpdated"));
-            var resortPingInfo = PatchInfo(AccessTools.Method(typeof(LobbyList), "OnLobbyPingUpdated"));
-            var keepCacheInfo = PatchInfo(AccessTools.Method(typeof(SteamLobby), nameof(SteamLobby.ClearLobbyCache)));
-            var reopenInfo = PatchInfo(AccessTools.Method(typeof(LobbyList), "Start"));
-            var filterInfo = PatchInfo(AccessTools.Method(typeof(LobbyList), nameof(LobbyList.GetListOfLobbies)));
-            var staleInfo = PatchInfo(AccessTools.Method(typeof(LobbyListItem), "SetPingTextAndColor"));
-            var pingQueryType = AccessTools.Inner(typeof(SteamLobby), "PingQuery");
-            var pingAskInfo = PatchInfo(AccessTools.Method(pingQueryType, "Run"));
-            var pingFailureInfo = PatchInfo(AccessTools.Method(pingQueryType, "ServerFailedToRespond"));
-            var rulesCancelInfo = PatchInfo(AccessTools.Method(
-                AccessTools.Inner(typeof(SteamLobby), "SearchQuery"), "Cancel"));
-            var queryCancelInfo = PatchInfo(AccessTools.Method(pingQueryType, "Cancel"));
-            var requestCancelInfo = PatchInfo(AccessTools.Method(
-                AccessTools.Inner(typeof(SteamLobby), "ServerListRequest"), "Cancel"));
-            var pingHoldInfo = PatchInfo(AccessTools.Method(typeof(SteamLobby), "CheckPingServers"));
-            var rulesAskInfo = PatchInfo(AccessTools.Method(
-                AccessTools.Inner(typeof(SteamLobby), "SearchQuery"), "Run"));
-            var missionMarkerInfo = PatchInfo(AccessTools.Method(
-                typeof(LobbyListItem), nameof(LobbyListItem.Show)));
-            var joinAskInfo = PatchInfo(AccessTools.Method(typeof(SteamLobby), nameof(SteamLobby.CliJoinBySteamId)));
-            var joinAttemptInfo = PatchInfo(AccessTools.Method(typeof(SteamLobby), nameof(SteamLobby.TryJoinLobby)));
-            var joinRequestInfo = PatchInfo(AccessTools.Method(typeof(SteamLobby), "OnJoinRequest"));
-            var joinRetryInfo = PatchInfo(AccessTools.Method(
-                AccessTools.Inner(typeof(SteamLobby), "ServerListRequest"), "OnRefreshComplete"));
-            var joinFailureInfo = PatchInfo(AccessTools.Method(typeof(NetworkManagerNuclearOption), "ClientDisconnected"));
+            var requestType = AccessTools.Inner(typeof(SteamLobby), "ServerListRequest");
+            var queryType = AccessTools.Inner(typeof(SteamLobby), "SearchQuery");
 
             Log.LogInfo(
-                "Patches: server list failure=" + listFailureInfo
-                + ", rules failure=" + rulesFailureInfo
-                + ", rules answer hooks="
-                + (rulesAnswerInfo != null ? rulesAnswerInfo.Prefixes.Count + rulesAnswerInfo.Postfixes.Count : -1)
-                + ", ping postfixes=" + pingInfo
-                + ", details repairs=" + detailsInfo
-                + ", detail refreshes=" + refreshInfo
-                + ", keep rows prefixes=" + keepRowsInfo
-                + ", join full postfixes=" + (lobbyUpdateInfo != null ? lobbyUpdateInfo.Postfixes.Count : -1)
-                + ", resort prefixes=" + (lobbyUpdateInfo != null ? lobbyUpdateInfo.Prefixes.Count : -1)
-                + ", resort triggers=" + resortDataInfo + "/" + resortPingInfo
-                + ", keep cache prefixes=" + keepCacheInfo
-                + ", reopen postfixes=" + reopenInfo
-                + ", filter prefixes=" + filterInfo
-                + ", stale markers=" + staleInfo
-                + ", rules markers=" + missionMarkerInfo
-                + ", ping asks=" + pingAskInfo
-                + ", ping failures=" + pingFailureInfo
-                + ", rules asks=" + rulesAskInfo
-                + ", queued queries=" + rulesAskInfo + "/" + pingAskInfo
-                + ", query cancels=" + rulesCancelInfo + "/" + queryCancelInfo
-                + ", request cancels=" + requestCancelInfo
-                + ", ping holds=" + pingHoldInfo
-                + ", join asks=" + joinAskInfo
-                + ", join attempts=" + joinAttemptInfo
-                + ", join requests=" + joinRequestInfo
-                + ", join retries=" + joinRetryInfo
-                + ", join failures=" + joinFailureInfo
+                "Patches: list failure=" + PatchInfo(AccessTools.Method(requestType, "OnServerFailedToRespond"))
+                + ", list answer=" + PatchInfo(AccessTools.Method(requestType, "OnServerResponded"))
+                + ", refresh complete=" + PatchInfo(AccessTools.Method(requestType, "OnRefreshComplete"))
+                + ", details=" + PatchInfo(AccessTools.Method(
+                    typeof(ServerLobbyInstance), nameof(ServerLobbyInstance.SetDetails)))
+                + ", ping cell=" + PatchInfo(AccessTools.Method(
+                    typeof(ServerLobbyInstance), nameof(ServerLobbyInstance.CalculatePing)))
+                + ", ping answer=" + PatchInfo(AccessTools.Method(
+                    typeof(ServerLobbyInstance), nameof(ServerLobbyInstance.SetPingResult)))
+                + ", name=" + PatchInfo(AccessTools.Method(typeof(ServerLobbyInstance), "get_LobbyName"))
+                + ", row ping=" + PatchInfo(AccessTools.Method(typeof(LobbyListItem), "SetPingTextAndColor"))
+                + ", row show=" + PatchInfo(AccessTools.Method(typeof(LobbyListItem), nameof(LobbyListItem.Show)))
+                + ", card show=" + PatchInfo(AccessTools.Method(typeof(LobbyDetailsModal), "Show"))
+                + ", card hide=" + PatchInfo(AccessTools.Method(typeof(LobbyDetailsModal), "Hide"))
+                + ", list awake=" + PatchInfo(AccessTools.Method(typeof(LobbyList), "Awake"))
+                + ", list destroy=" + PatchInfo(AccessTools.Method(typeof(LobbyList), "OnDestroy"))
+                + ", join ask=" + PatchInfo(AccessTools.Method(typeof(SteamLobby), nameof(SteamLobby.CliJoinBySteamId)))
+                + ", join attempt=" + PatchInfo(AccessTools.Method(typeof(SteamLobby), nameof(SteamLobby.TryJoinLobby)))
+                + ", join request=" + PatchInfo(AccessTools.Method(typeof(SteamLobby), "OnJoinRequest"))
+                + ", join rules=" + PatchInfo(AccessTools.Method(queryType, "RulesFailedToRespond"))
+                + ", join failure=" + PatchInfo(AccessTools.Method(
+                    typeof(NetworkManagerNuclearOption), "ClientDisconnected"))
                 + " | listUnreachableServers=" + ListUnreachableServers.Value
-                + ", listBeforeAnswering=" + ListBeforeAnswering.Value
-                + ", keepServersListed=" + KeepServersListed.Value
                 + ", joinFullServers=" + JoinFullServers.Value
                 + ", showLatestQueryStatus=" + ShowLatestQueryStatus.Value
                 + ", refreshServerButton=" + RefreshServerButton.Value
-                + ", throttleQueries=" + ThrottleQueries.Value
-                + ", queriesPerSecond=" + QueriesPerSecond.Value
-                + ", refreshCooldownSeconds=" + RefreshCooldownSeconds.Value
-                + ", refreshTimeoutSeconds=" + RefreshTimeoutSeconds.Value
-                + ", markerTimeoutSeconds=" + MarkerTimeoutSeconds.Value);
+                + ", refreshCooldownSeconds=" + RefreshCooldownSeconds.Value);
         }
 
         /// <summary>How many prefixes and postfixes landed on a method, or -1 when the method is not there.</summary>
-        private static int PatchInfo(System.Reflection.MethodBase target)
+        private static int PatchInfo(MethodBase target)
         {
             var info = target != null ? PatchProcessor.GetPatchInfo(target) : null;
             return info != null ? info.Prefixes.Count + info.Postfixes.Count : -1;

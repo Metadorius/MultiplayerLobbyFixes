@@ -10,31 +10,24 @@ using UnityEngine;
 namespace MultiplayerLobbyFixes
 {
     /// <summary>
-    /// Draws the two query markers, the ping column's and the mission cell's, the way the game marks a server
-    /// with too many players: a glyph in the cell, with a tooltip that explains it on hover. The ping marker rides
-    /// the game's own repaint of the ping column, and the rules marker sits on the map and mission text, the two
-    /// things a rules answer carries.
+    /// Marks a server that is not answering, the way the game marks a server with too many players: a glyph in the
+    /// cell, with a tooltip that explains it on hover.
     ///
-    /// The glyph follows the query cycle. While a query is out the row shows a pulsing sync icon, so a run of them
-    /// reads as the browser working through the list. When a query comes back with nothing useful, the row shows
-    /// the warning triangle until one is answered; the servers the ping loop never asks, the unreachable ones
-    /// listed from the master list and the ones whose rules never answered, keep the triangle too. An answered
-    /// query leaves the row bare.
+    /// Two marks, for the two things that can be wrong with a listed server. The ping column carries a triangle
+    /// when this machine's master list could not reach the server at all, which is also the row the unreachable
+    /// listing added. The mission cell carries one when the server's rules query failed, and a sync icon while it
+    /// is still out; neither happens to a row on its own, since a listing asks nothing per server, so the mission
+    /// mark shows up mostly in the details window, where a rules answer is asked for.
     ///
-    /// Vanilla never repaints a row when a ping fails, so the state is pushed through the query callbacks, which
-    /// repaint the row through Repaint, and the pulse is stepped from the list's per-frame hook over in
-    /// LobbyListResortPatch.
-    ///
-    /// The same two markers also sit in the details window, on the rows the two queries fill there: the window's
-    /// ping row and its mission row. The window rewrites its ping cell from its own loop every second, and
-    /// that loop is an async method, so the markers are drawn again from the MoveNext of the loop right after each
-    /// write, and from the list's own per-frame hook while the window is up.
+    /// The ping mark rides the game's own repaint of the ping column, which happens when a row is shown and when a
+    /// ping arrives. The details window's cells are rewritten by its own loop every second, so they are composed
+    /// again from their own sources each frame and only written when they differ.
     ///
     /// The hover catcher is the game's own ShowHoverText, added to the cell's text and pointed at a clone of the
     /// tooltip the player-count warning uses, so it looks and behaves like vanilla's; one clone serves both
-    /// markers, since what a hovered cell says is its own catcher's text. A disabled ShowHoverText
-    /// receives no pointer events, which is how the game hides its own, so the same trick hides ours, at the cost
-    /// of the exit event never arriving to close a tooltip that is already open.
+    /// markers, since what a hovered cell says is its own catcher's text. A disabled ShowHoverText receives no
+    /// pointer events, which is how the game hides its own, so the same trick hides ours, at the cost of the exit
+    /// event never arriving to close a tooltip that is already open.
     /// </summary>
     [HarmonyPatch(typeof(LobbyListItem), "SetPingTextAndColor")]
     internal static class StaleRowPatch
@@ -49,28 +42,18 @@ namespace MultiplayerLobbyFixes
         private const string WarningIcon =
             "<color=#FFFF00FF><size=80%><font=MaterialSymbolsSharp>\ue002</font></size></color> ";
 
-        private const string WarningText = "May be stale, no response to the latest status query";
-
-        private const string RulesWarningText = "May be stale, no response to the latest rules query";
-
         /// <summary>The game's two-arrows sync icon, the closest thing to a spinner in the icon set.</summary>
-        private const string SpinnerIcon = "\ue86a";
+        private const string LoadingIcon =
+            "<color=#AEB8C8FF><size=80%><font=MaterialSymbolsSharp>\ue86a</font></size></color> ";
 
-        /// <summary>What a row says while a refresh for it is queued and not yet asked.</summary>
-        private const string QueuedText = "Refresh queued, waiting its turn";
+        private const string UnreachableText =
+            "Did not answer this machine's status query, listed from Steam's master list. Ping and player counts "
+            + "may be out of date.";
 
-        /// <summary>The greys the sync icon pulses between while a query is out, and the pulse timing.</summary>
-        private static readonly Color SpinnerDim = new Color32(0x53, 0x5b, 0x69, 0xff);
+        private const string RulesWarningText = "Did not answer the latest rules query, so the mission and map may "
+            + "be out of date.";
 
-        private static readonly Color SpinnerBright = new Color32(0xae, 0xb8, 0xc8, 0xff);
-
-        /// <summary>How many steps one pulse runs through, and how long a step takes.</summary>
-        private const int PulseSteps = 7;
-
-        private const float PulsePeriod = 1.2f;
-
-        /// <summary>When a query that never called back is written off as failed, so a row cannot pulse forever.</summary>
-        private static float AskTimeout => Mathf.Max(1f, Plugin.MarkerTimeoutSeconds.Value);
+        private const string RulesLoadingText = "Asking this server for its rules.";
 
         private static readonly FieldInfo LobbyField = AccessTools.Field(typeof(LobbyListItem), "<lobby>k__BackingField");
 
@@ -96,141 +79,53 @@ namespace MultiplayerLobbyFixes
         /// </summary>
         private static HoverText _tooltip;
 
+        /// <summary>The browser the rows belong to, remembered while one is open.</summary>
+        private static LobbyList _list;
+
+        /// <summary>The details window while one is open, and the server it shows.</summary>
+        private static LobbyDetailsModal _details;
+
+        private static ServerLobbyInstance _detailsLobby;
+
         [HarmonyPostfix]
         private static void Postfix(LobbyListItem __instance)
         {
-            if (!Plugin.ShowLatestQueryStatus.Value)
-            {
-                return;
-            }
-
-            var lobby = LobbyField != null ? LobbyField.GetValue(__instance) as ServerLobbyInstance : null;
-            var ping = PingTextField != null ? PingTextField.GetValue(__instance) as TextMeshProUGUI : null;
-            if (lobby == null || ping == null)
-            {
-                return;
-            }
-
-            GlyphFor(ServerBrowser.PingStateOf(ServerBrowser.IdOf(lobby)), WarningText, out var glyph, out var reason);
-
-            if (glyph != null && !HasGlyph(ping.text))
-            {
-                // Vanilla has just written the ping, or nothing when it has none, and this is added on top of it.
-                ping.text = glyph + ping.text;
-            }
-
-            SetHover(ping, ListOf(__instance), reason);
+            DrawPing(__instance);
         }
 
-        private static bool HasGlyph(string text)
-        {
-            return text.IndexOf('\ue002') >= 0 || text.IndexOf('\ue86a') >= 0;
-        }
-
-        /// <summary>
-        /// The list's per-frame housekeeping: remembers the browser in use, pulses any query still out, and writes
-        /// off a query that never called back, so a row cannot pulse forever over one Steam forgot.
-        /// </summary>
-        internal static void Tick(LobbyList list)
+        /// <summary>Remembers the browser in use, for the readers that do not have it at hand.</summary>
+        internal static void Focus(LobbyList list)
         {
             _list = list;
-
-            if (!Plugin.ShowLatestQueryStatus.Value)
-            {
-                return;
-            }
-
-            TickDetails();
-
-            if (ServerBrowser.Asking.Count == 0 && ServerBrowser.RulesAsking.Count == 0)
-            {
-                return;
-            }
-
-            var now = Time.time;
-            List<ServerLobbyInstance> stuck = null;
-            foreach (var ask in ServerBrowser.Asking.Values)
-            {
-                if (now - ask.When > AskTimeout)
-                {
-                    stuck = stuck ?? new List<ServerLobbyInstance>();
-                    stuck.Add(ask.Lobby);
-                }
-            }
-
-            if (stuck != null)
-            {
-                foreach (var lobby in stuck)
-                {
-                    ServerBrowser.PingFailed(ServerBrowser.IdOf(lobby));
-                    Repaint(lobby);
-                }
-            }
-
-            stuck = null;
-            foreach (var ask in ServerBrowser.RulesAsking.Values)
-            {
-                if (now - ask.When > AskTimeout)
-                {
-                    stuck = stuck ?? new List<ServerLobbyInstance>();
-                    stuck.Add(ask.Lobby);
-                }
-            }
-
-            if (stuck != null)
-            {
-                foreach (var lobby in stuck)
-                {
-                    ServerBrowser.RulesFailed(ServerBrowser.IdOf(lobby));
-                    Repaint(lobby);
-                }
-            }
-
-            var step = PulseStep();
-            if (step == _step)
-            {
-                return;
-            }
-
-            _step = step;
-            foreach (var ask in ServerBrowser.Asking.Values)
-            {
-                Repaint(ask.Lobby);
-            }
-
-            foreach (var ask in ServerBrowser.RulesAsking.Values)
-            {
-                Repaint(ask.Lobby);
-            }
         }
 
         /// <summary>
-        /// Re-reads both markers on a row: the ping column through vanilla's own update, and the mission cell
-        /// through the same drawing it gets when it is shown. The query callbacks call this because vanilla
-        /// repaints nothing itself when a ping fails or when a query settles.
+        /// Draws the ping marker on a row, which the game has just written the ping of, or nothing when it has
+        /// none.
         /// </summary>
-        internal static void Repaint(ServerLobbyInstance lobby)
+        internal static void DrawPing(LobbyListItem row)
         {
-            try
+            if (!Plugin.ShowLatestQueryStatus.Value || row == null)
             {
-                var list = _list;
-                if (list == null || lobby == null || AllLobbiesField == null)
-                {
-                    return;
-                }
+                return;
+            }
 
-                var rows = AllLobbiesField.GetValue(list) as Dictionary<LobbyInstance, LobbyListItem>;
-                LobbyListItem row;
-                if (rows != null && rows.TryGetValue(lobby, out row) && row != null)
-                {
-                    row.UpdatePing();
-                    DrawMission(row);
-                }
-            }
-            catch (Exception e)
+            var lobby = LobbyField != null ? LobbyField.GetValue(row) as ServerLobbyInstance : null;
+            var ping = PingTextField != null ? PingTextField.GetValue(row) as TextMeshProUGUI : null;
+            if (lobby == null || ping == null)
             {
-                Plugin.Log.LogError("Could not repaint a server row: " + e);
+                SetHover(ping, null, string.Empty);
+                return;
             }
+
+            var unreachable = ServerBrowser.IsUnreachable(lobby);
+
+            if (unreachable && !HasGlyph(ping.text))
+            {
+                ping.text = WarningIcon + ping.text;
+            }
+
+            SetHover(ping, ListOf(row), unreachable ? UnreachableText : string.Empty);
         }
 
         /// <summary>
@@ -239,7 +134,7 @@ namespace MultiplayerLobbyFixes
         /// </summary>
         internal static void DrawMission(LobbyListItem row)
         {
-            if (!Plugin.ShowLatestQueryStatus.Value)
+            if (!Plugin.ShowLatestQueryStatus.Value || row == null)
             {
                 return;
             }
@@ -259,7 +154,23 @@ namespace MultiplayerLobbyFixes
                 return;
             }
 
-            GlyphFor(ServerBrowser.RulesStateOf(ServerBrowser.IdOf(lobby)), RulesWarningText, out var glyph, out var reason);
+            string glyph;
+            string reason;
+            if (lobby.RulesFailed)
+            {
+                glyph = WarningIcon;
+                reason = RulesWarningText;
+            }
+            else if (lobby.RulesLoading)
+            {
+                glyph = LoadingIcon;
+                reason = RulesLoadingText;
+            }
+            else
+            {
+                glyph = null;
+                reason = string.Empty;
+            }
 
             var text = row.MissionName ?? string.Empty;
             if (!string.IsNullOrEmpty(row.MapName))
@@ -274,61 +185,15 @@ namespace MultiplayerLobbyFixes
             SetHover(mission, ListOf(row), reason);
         }
 
-        private static string Spinner()
+        private static bool HasGlyph(string text)
         {
-            var shade = Color.Lerp(SpinnerDim, SpinnerBright, PulseStep() / (float)PulseSteps);
-            return "<color=#" + ColorUtility.ToHtmlStringRGB(shade)
-                + "><size=80%><font=MaterialSymbolsSharp>" + SpinnerIcon + "</font></size></color> ";
-        }
-
-        /// <summary>
-        /// The same icon held still, at the pulse's bright end, for a refresh the pass has down for a row but has
-        /// not asked yet: the pulse is what says a query is out, so nothing pulsing reads as nothing happening yet.
-        /// </summary>
-        private static string StillSpinner()
-        {
-            return "<color=#" + ColorUtility.ToHtmlStringRGB(SpinnerBright)
-                + "><size=80%><font=MaterialSymbolsSharp>" + SpinnerIcon + "</font></size></color> ";
-        }
-
-        /// <summary>The pulse as a handful of steps rather than per frame, so a repaint lands on each step only.</summary>
-        private static int PulseStep()
-        {
-            var t = Mathf.Repeat(Time.time / PulsePeriod, 1f);
-            var up = t < 0.5f ? t * 2f : (1f - t) * 2f;
-            return Mathf.RoundToInt(up * PulseSteps);
+            return text != null && (text.IndexOf('\ue002') >= 0 || text.IndexOf('\ue86a') >= 0);
         }
 
         /// <summary>The list a row belongs to, which is where the hover tooltip is cloned from.</summary>
         private static LobbyList ListOf(LobbyListItem item)
         {
             return ListField != null ? ListField.GetValue(item) as LobbyList : null;
-        }
-
-        /// <summary>The glyph and the hover message a marker shows for a query cycle.</summary>
-        private static void GlyphFor(
-            ServerBrowser.QueryState state, string warning, out string glyph, out string reason)
-        {
-            if (state == ServerBrowser.QueryState.Asking)
-            {
-                glyph = Spinner();
-                reason = string.Empty;
-            }
-            else if (state == ServerBrowser.QueryState.Queued)
-            {
-                glyph = StillSpinner();
-                reason = QueuedText;
-            }
-            else if (state == ServerBrowser.QueryState.Answered)
-            {
-                glyph = null;
-                reason = string.Empty;
-            }
-            else
-            {
-                glyph = WarningIcon;
-                reason = warning;
-            }
         }
 
         /// <summary>
@@ -431,8 +296,8 @@ namespace MultiplayerLobbyFixes
         }
 
         /// <summary>
-        /// Draws the window's two markers on the rows the two queries fill there: the ping row and the mission
-        /// row. The window's own loop rewrites the ping cell from CalculatePing every second, so the cell is
+        /// Draws the window's two markers on the cells the two queries fill there, the ping cell and the mission
+        /// cell. The window's own loop rewrites the ping cell from CalculatePing every second, so the cell is
         /// composed from the same source with the marker in front, and only written when it actually differs.
         /// </summary>
         internal static void TickDetails()
@@ -449,22 +314,19 @@ namespace MultiplayerLobbyFixes
                 return;
             }
 
-            var id = ServerBrowser.IdOf(lobby);
-
             var ping = DetailsPingField != null ? DetailsPingField.GetValue(modal) as TextMeshProUGUI : null;
             if (ping != null)
             {
-                GlyphFor(ServerBrowser.PingStateOf(id), WarningText, out var glyph, out var reason);
-
+                var unreachable = ServerBrowser.IsUnreachable(lobby);
                 var value = lobby.CalculatePing();
                 var body = value != null ? value.Value + "ms" : string.Empty;
-                var text = glyph != null ? glyph + body : body;
+                var text = unreachable ? WarningIcon + body : body;
                 if (ping.text != text)
                 {
                     ping.text = text;
                 }
 
-                SetHover(ping, _list, reason);
+                SetHover(ping, _list, unreachable ? UnreachableText : string.Empty);
             }
 
             var mission = DetailsMissionField != null
@@ -472,7 +334,23 @@ namespace MultiplayerLobbyFixes
                 : null;
             if (mission != null)
             {
-                GlyphFor(ServerBrowser.RulesStateOf(id), RulesWarningText, out var glyph, out var reason);
+                string glyph;
+                string reason;
+                if (lobby.RulesFailed)
+                {
+                    glyph = WarningIcon;
+                    reason = RulesWarningText;
+                }
+                else if (lobby.RulesLoading)
+                {
+                    glyph = LoadingIcon;
+                    reason = RulesLoadingText;
+                }
+                else
+                {
+                    glyph = null;
+                    reason = string.Empty;
+                }
 
                 var body = lobby.MissionNameSanitized ?? string.Empty;
                 var text = glyph != null ? glyph + body : body;
@@ -484,23 +362,11 @@ namespace MultiplayerLobbyFixes
                 SetHover(mission, _list, reason);
             }
         }
-
-        private static readonly FieldInfo AllLobbiesField = AccessTools.Field(typeof(LobbyList), "allLobbies");
-
-        /// <summary>The browser the rows belong to, set by Tick while one is open.</summary>
-        private static LobbyList _list;
-
-        /// <summary>The details window while one is open, and the server it shows.</summary>
-        private static LobbyDetailsModal _details;
-
-        private static ServerLobbyInstance _detailsLobby;
-
-        private static int _step = -1;
     }
 
     /// <summary>
-    /// Puts the rules marker on the mission cell when a row is shown, which is the only time the game writes that
-    /// cell: the server may already have a rules query out, or a settled one from an earlier refresh.
+    /// Draws the rules marker in the mission cell when a row is shown, which is the only time the game writes that
+    /// cell.
     /// </summary>
     [HarmonyPatch(typeof(LobbyListItem), nameof(LobbyListItem.Show))]
     internal static class RulesRowPatch
@@ -564,36 +430,6 @@ namespace MultiplayerLobbyFixes
         private static void AfterHide()
         {
             StaleRowPatch.CloseDetails();
-        }
-    }
-
-    /// <summary>
-    /// Draws the window's markers again right after its own loop runs, which is the moment the loop has just
-    /// rewritten the ping cell: the loop is an async method, so its body lives in a generated state machine, and
-    /// the MoveNext of that state machine is the only hook its writer has.
-    /// </summary>
-    [HarmonyPatch]
-    internal static class DetailsLoopPatch
-    {
-        [HarmonyTargetMethod]
-        private static MethodBase Target()
-        {
-            foreach (var type in typeof(LobbyDetailsModal).GetNestedTypes(
-                BindingFlags.NonPublic | BindingFlags.Instance))
-            {
-                if (type.Name.StartsWith("<UpdateLoop>", StringComparison.Ordinal))
-                {
-                    return AccessTools.Method(type, "MoveNext");
-                }
-            }
-
-            return null;
-        }
-
-        [HarmonyPostfix]
-        private static void Postfix()
-        {
-            StaleRowPatch.TickDetails();
         }
     }
 }
