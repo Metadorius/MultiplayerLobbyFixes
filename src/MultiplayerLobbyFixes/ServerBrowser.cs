@@ -17,7 +17,7 @@ namespace MultiplayerLobbyFixes
     /// Keeps the browser usable when Steam's master list knows about a server this machine cannot query, and keeps
     /// the copies it hands over honest.
     ///
-    /// Since 0.34.6 a refresh is one master list request: the servers' mission, map, player count, password flag
+    /// Since 0.34.5 a refresh is one master list request: the servers' mission, map, player count, password flag
     /// and start time arrive inside the game tags of each server's entry, and the entry's own details carry the
     /// ping. Nothing else is asked of a listed server while the browser is open. What is left is the server whose
     /// query port does not answer from this machine at all, usually one behind a relay or a firewall, where the

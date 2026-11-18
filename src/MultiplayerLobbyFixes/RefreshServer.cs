@@ -16,7 +16,7 @@ namespace MultiplayerLobbyFixes
     /// Puts a Refresh button in the server details window, immediately left of Join, which asks that one server for
     /// its rules again: the mission, the map, the description and the duration.
     ///
-    /// Since 0.34.6 a server's rules are only asked for when the window opens, and only if it does not already have
+    /// Since 0.34.5 a server's rules are only asked for when the window opens, and only if it does not already have
     /// an answer. That answer is cached on the entry for as long as the entry lives, so a server whose mission
     /// changed, or whose rules failed the first time, has no way to be asked again. This button is that way: it
     /// forgets the cached answer, asks again, and reads the window again when it lands, through the same method the

@@ -22,7 +22,7 @@ BepInEx loads plugins once per process, so a rebuild needs a game restart. The l
 
 The install path is the `nuclearOption.root` setting in `.vscode\settings.json`, which the build task uses too, so one edit covers a moved game. The file is gitignored because it is a machine path, and without the key the build and launch stop on an unresolved variable. `NUCLEAR_OPTION_ROOT` cannot stand in, since VS Code resolves `${env:...}` against the environment it started with, so a later variable never reaches tasks or launches.
 
-## What 0.34.6 changed
+## What 0.34.5 changed
 
 The server list communication was rebuilt, and most of what this mod used to carry has no work left to do.
 
@@ -83,6 +83,6 @@ Testing a Steam join needs the Steam client: the rich presence path only happens
 
 ## Status
 
-Version 0.3.0, played against game 0.34.6. The join paths were developed and verified in play against 0.34.1, a running game and a cold launch through the Steam client both included. The 0.34.6 browser work (unreachable listing, copy repair, markers, card refresh, full-server join) is built against the new binaries and needs a play test.
+Version 0.3.0, played against game 0.34.5. The join paths were developed and verified in play against 0.34.1, a running game and a cold launch through the Steam client both included. The 0.34.5 browser work (unreachable listing, copy repair, markers, card refresh, full-server join) is built against the new binaries and needs a play test.
 
 The code was split byte for byte out of Map Mouse Select 0.3.0, where the join half of it was developed.

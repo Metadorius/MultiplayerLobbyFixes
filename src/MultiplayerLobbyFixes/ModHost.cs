@@ -10,7 +10,7 @@ namespace MultiplayerLobbyFixes
     /// lazily and rebuilt if it goes missing. Work that must preempt vanilla input stays in Harmony patches, which
     /// run before the game acts on the same input in the same frame.
     ///
-    /// The browser's own per-frame work lives here too, since 0.34.6 took the list's Update away: the browser's
+    /// The browser's own per-frame work lives here too, since 0.34.5 took the list's Update away: the browser's
     /// rows and the details window are painted from here while either is on screen.
     /// </summary>
     internal sealed class ModHost : MonoBehaviour
