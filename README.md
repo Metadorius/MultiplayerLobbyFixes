@@ -1,15 +1,9 @@
 # Multiplayer Lobby Fixes
 
-A mod that keeps the server browser honest about servers it cannot reach, and fixes all known to me issues with Steam joins.
+A mod that improves the server list and fixes all known to me issues with Steam joins.
 
-![The server browser: the servers listed with their markers and the filter list](docs/media/serverlist.gif)
+![The server browser: unreachable servers listed with their markers, and the rules warning's tooltip](docs/media/serverlist.png)
 ![The details window, with its own Refresh button next to Join](docs/media/serverrefresh.gif)
-
-## What 0.34.6 changed
-
-The game reworked its server list communication. A refresh is now one master list request: each server's mission, map, player count, password flag and start time arrive inside the Steam game tags of its entry, and its ping comes with the entry's own details. Nothing is queried per server while the browser is open, servers no longer get their rows wiped by a refresh, and the list filters locally.
-
-That removed most of what this mod used to do: the query queue and its rate limit, the local filter takeover, keeping rows through a refresh, the keep-the-list-on-refresh and keep-the-cache options, and the per-server ping markers. What is left is what the game still does not do.
 
 ## Changes
 
@@ -18,14 +12,13 @@ Many of those things have configurations if you have BepInEx config manager inst
 Please note that most of the changes only apply to *dedicated servers*, as that's where the issues were.
 
 - A dedicated server whose query port does not answer this machine is listed anyway, from the copy Steam's master list handed over, instead of vanishing with a line in the log. Such servers are often reachable through Steam even when a direct query fails.
-  - It keeps everything it last said about itself: name, player counts, password, map, mission, description and ping. Nothing about it degrades; the row only gains a warning triangle with a tooltip, and the mark comes off as soon as the server answers anything.
-- If a server entry receives a proper piece of info (name, player count, password flag, ping, tags), a bogus piece of info won't replace it anymore: Steam answers for a server it could not reach with zeroes and an address where the name was, and the game writes those straight into the entry.
-- Added a per-server **`🔃 Refresh` button** in the details window, which asks Steam's master list about that one server: name, counts, ping, map, mission, description, start time and password. One request for one server instead of a whole list refresh, and no other row is touched.
-  - It greys out for the same time as the browser's own Refresh button, and shows a sync icon while the answer is out.
+- If a server entry receives a proper piece of info, a bogus piece of info won't replace it anymore.
+- Added a per-server **`🔃 Refresh` button** in the details window, same as main refresh but per-server.
 - Added markers of server state, on the list and in the details window:
-  - a sync icon while that one server is being asked about, or while its rules query is out,
+  - 🔃 while that one server is being asked about, or while its rules query is out,
   - ⚠️ for a server the master list could not reach (ping column) and for a rules query that came back empty (mission cell), with a clarification in a tooltip,
   - nothing for fresh info.
+- Rules query failures don't stop from joining the server anymore when you in fact could join.
 - The `Join` button is not grayed out anymore to be able to join to "0/0" servers (the legit full server will refuse a join anyway).
 - `Join Game` from Steam (and CLI) now properly works in all cases:
   - the redundant queries/checks were removed or are skipped if they do some miniscule use, actually joining the game is the first priority, which makes it work for servers better,
