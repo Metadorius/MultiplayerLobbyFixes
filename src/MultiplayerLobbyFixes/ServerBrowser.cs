@@ -56,6 +56,23 @@ namespace MultiplayerLobbyFixes
         private static readonly Dictionary<ulong, int> LastPings = new Dictionary<ulong, int>();
 
         /// <summary>
+        /// The last non-empty game tags a copy carried, by server. The map, mission, description, start time and
+        /// password all live in there, and a copy that failed carries none of them, so without this a refresh that
+        /// cannot reach a server empties its row instead of leaving what it last said.
+        /// </summary>
+        private static readonly Dictionary<ulong, string> LastTags = new Dictionary<ulong, string>();
+
+        /// <summary>The last mission text a copy carried, by server, which the tags do not hold.</summary>
+        private static readonly Dictionary<ulong, string> LastMaps = new Dictionary<ulong, string>();
+
+        /// <summary>The rules a server last reported, by server, which is what a thinner copy is filled from.</summary>
+        private static readonly Dictionary<ulong, Dictionary<string, string>> LastRules =
+            new Dictionary<ulong, Dictionary<string, string>>();
+
+        /// <summary>The rules dictionary a server entry keeps its own answers in.</summary>
+        private static readonly FieldInfo RulesField = AccessTools.Field(typeof(ServerLobbyInstance), "rules");
+
+        /// <summary>
         /// The servers listed because Steam's master list could not reach them, by server. The row says so, its
         /// ping column stays blank, and the mark comes off as soon as the server answers anything.
         /// </summary>
@@ -85,6 +102,18 @@ namespace MultiplayerLobbyFixes
         {
             var id = IdOf(lobby);
             return id.IsValid() && Unreachable.Contains(id.m_SteamID);
+        }
+
+        /// <summary>Whether a copy ever carried a measured ping for a server, which stands in for one it lost.</summary>
+        internal static bool HasMeasuredPing(CSteamID id)
+        {
+            if (!id.IsValid())
+            {
+                return false;
+            }
+
+            int ping;
+            return LastPings.TryGetValue(id.m_SteamID, out ping) && PingLooksMeasured(ping);
         }
 
         /// <summary>
@@ -166,6 +195,39 @@ namespace MultiplayerLobbyFixes
             {
                 copy.m_nPing = ping;
                 replaced.Add("ping");
+            }
+
+            // The tags carry the map, the mission, the description, the start time and the password flag, and a
+            // copy Steam could not fetch carries none of them. Putting the last ones back is what keeps a row from
+            // emptying itself every time a server stops answering.
+            var tags = copy.GetGameTags();
+            if (string.IsNullOrEmpty(tags))
+            {
+                string knownTags;
+                if (LastTags.TryGetValue(id.m_SteamID, out knownTags))
+                {
+                    copy.SetGameTags(knownTags);
+                    replaced.Add("tags");
+                }
+            }
+            else
+            {
+                LastTags[id.m_SteamID] = tags;
+            }
+
+            var map = copy.GetMap();
+            if (string.IsNullOrEmpty(map))
+            {
+                string knownMap;
+                if (LastMaps.TryGetValue(id.m_SteamID, out knownMap))
+                {
+                    copy.SetMap(knownMap);
+                    replaced.Add("map");
+                }
+            }
+            else
+            {
+                LastMaps[id.m_SteamID] = map;
             }
 
             CountCopy(copy, replaced);
@@ -276,6 +338,57 @@ namespace MultiplayerLobbyFixes
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Fills in the rules a server last reported, for the keys a copy this time did not carry.
+        ///
+        /// The map, mission, description, start time and password flag all live in the game tags, and a copy Steam
+        /// hands over for an unreachable server carries none. Repair puts the last tags back for those, and this is
+        /// the second half: a copy that arrives with fewer keys than the one before it, as a protocol or tag-limit
+        /// change can cause, gains the missing ones back instead of dropping columns off the row. Only gaps are
+        /// filled, so a fresh value always wins.
+        /// </summary>
+        internal static void KeepRules(ServerLobbyInstance lobby)
+        {
+            try
+            {
+                var id = IdOf(lobby);
+                if (!id.IsValid() || RulesField == null)
+                {
+                    return;
+                }
+
+                var live = RulesField.GetValue(lobby) as Dictionary<string, string>;
+                if (live == null)
+                {
+                    return;
+                }
+
+                Dictionary<string, string> known;
+                if (!LastRules.TryGetValue(id.m_SteamID, out known))
+                {
+                    known = new Dictionary<string, string>();
+                    LastRules[id.m_SteamID] = known;
+                }
+
+                foreach (var pair in known)
+                {
+                    if (!live.ContainsKey(pair.Key))
+                    {
+                        live[pair.Key] = pair.Value;
+                    }
+                }
+
+                foreach (var pair in live)
+                {
+                    known[pair.Key] = pair.Value;
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogError("Could not keep what a server reported: " + e);
+            }
         }
 
         /// <summary>
@@ -660,8 +773,8 @@ namespace MultiplayerLobbyFixes
     }
 
     /// <summary>
-    /// Repairs the copy of a server Steam hands over before vanilla reads it, which is the one place every copy
-    /// passes through: the master list's own entries and the ones the mod builds for a failed entry alike.
+    /// Repairs the copy of a server Steam hands over before vanilla reads it, and fills in the rules it reported
+    /// afterwards, which are the two halves of never letting a row lose what it already knew.
     /// </summary>
     [HarmonyPatch(typeof(ServerLobbyInstance), nameof(ServerLobbyInstance.SetDetails))]
     internal static class ServerDetailsPatch
@@ -677,6 +790,12 @@ namespace MultiplayerLobbyFixes
             {
                 Plugin.Log.LogError("Could not repair a server's details: " + e);
             }
+        }
+
+        [HarmonyPostfix]
+        private static void Postfix(ServerLobbyInstance __instance)
+        {
+            ServerBrowser.KeepRules(__instance);
         }
     }
 
@@ -696,9 +815,9 @@ namespace MultiplayerLobbyFixes
     }
 
     /// <summary>
-    /// Blanks the ping column of a server this machine could not query, instead of showing the copy's placeholder
-    /// or a number from whenever the server last registered itself. A ping the game measured itself, which the
-    /// details window asks for every ten seconds, is left alone: it proves the server is up.
+    /// Blanks the ping column of a server this machine could not query and never measured before, instead of
+    /// showing the copy's placeholder. A number this machine measured earlier stands, and so does one the game
+    /// measured itself: the row keeps everything it had and only gains the warning triangle.
     /// </summary>
     [HarmonyPatch(typeof(ServerLobbyInstance), nameof(ServerLobbyInstance.CalculatePing))]
     internal static class ServerPingPatch
@@ -714,6 +833,11 @@ namespace MultiplayerLobbyFixes
             }
 
             if (RealPingField != null && (bool)RealPingField.GetValue(__instance))
+            {
+                return;
+            }
+
+            if (ServerBrowser.HasMeasuredPing(ServerBrowser.IdOf(__instance)))
             {
                 return;
             }

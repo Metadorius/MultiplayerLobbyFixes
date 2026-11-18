@@ -46,9 +46,10 @@ namespace MultiplayerLobbyFixes
             ListUnreachableServers = Config.Bind("Server browser", "ListUnreachableServers", true,
                 "Steam's master list returns a server, but its own query port does not answer from this machine, "
                 + "so the game drops it and only writes a line in the log. With this on, such a server is listed "
-                + "anyway, built from the copy Steam handed over: its name, player count and password flag, plus "
-                + "the map and mission its Steam tags carry. Its ping stays blank and its row keeps a warning "
-                + "triangle, and joining it works whenever Steam can reach it. Player hosted games are listed from "
+                + "anyway, built from the copy Steam handed over, and it keeps whatever it last said about itself: "
+                + "name, player counts, password flag, map, mission, description and ping. Only the ping column of "
+                + "a server this machine never measured stays blank. Either way the row gains a warning triangle, "
+                + "and joining works whenever Steam can reach the server. Player hosted games are listed from "
                 + "Steam's lobby data and are not affected.");
 
             JoinFullServers = Config.Bind("Server browser", "JoinFullServers", true,
@@ -57,19 +58,23 @@ namespace MultiplayerLobbyFixes
                 + "server reading 32/32 often has room. A server that really is full refuses the join itself.");
 
             ShowLatestQueryStatus = Config.Bind("Server browser", "ShowLatestQueryStatus", true,
-                "Mark a row whose server is not answering: a warning triangle in the ping column when the master "
-                + "list could not reach it, and one in the mission cell when its rules query failed or is still "
-                + "out. The same marks appear in the details window. A server with nothing wrong shows nothing.");
+                "Mark a row that is not up to date: a sync icon while Steam's master list is being asked about "
+                + "that one server, a warning triangle when the master list could not reach it, and one in the "
+                + "mission cell when its rules query failed. The same marks appear in the details window. A server "
+                + "with nothing wrong shows nothing.");
 
             RefreshServerButton = Config.Bind("Server browser", "RefreshServerButton", true,
-                "Add a Refresh button to the server details window, left of Join, which asks that one server for "
-                + "its rules again: the mission, the map, the description and the duration. It reads the card "
-                + "again when the answer lands, and does nothing to the rest of the list.");
+                "Add a Refresh button to the server details window, left of Join, which asks Steam's master list "
+                + "about that one server: name, player counts, ping, map, mission, description, start time and "
+                + "password flag. It costs one request for one server instead of a whole list refresh, and leaves "
+                + "every other row alone. The button greys out for the same time as the browser's own Refresh "
+                + "button.");
 
             RefreshCooldownSeconds = Config.Bind("Server browser", "RefreshCooldownSeconds", 3f,
                 new ConfigDescription(
-                    "How long one server's rules are left alone after the card's Refresh button asked for them, so "
-                    + "a held down button cannot spend a query a frame on the same server.",
+                    "How long the details window's Refresh button stays grey after a press, so a held down button "
+                    + "cannot spend a request a frame on the same server. It is grey while the browser's own "
+                    + "Refresh button is grey too, whatever this says.",
                     new AcceptableValueRange<float>(0f, 60f)));
 
             VerboseLogging = Config.Bind("Diagnostics", "VerboseLogging", true,

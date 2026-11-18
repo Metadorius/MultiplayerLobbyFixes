@@ -63,6 +63,8 @@ namespace MultiplayerLobbyFixes
 
         private static readonly FieldInfo ListField = AccessTools.Field(typeof(LobbyListItem), "multiplayerLobbyList");
 
+        private static readonly FieldInfo AllLobbiesField = AccessTools.Field(typeof(LobbyList), "allLobbies");
+
         private static readonly FieldInfo HoverSourceField = AccessTools.Field(typeof(LobbyList), "TooManyPlayerHover");
 
         private static readonly FieldInfo HoverField = AccessTools.Field(typeof(ShowHoverText), "hover");
@@ -96,7 +98,8 @@ namespace MultiplayerLobbyFixes
 
         /// <summary>
         /// Draws the ping marker on a row, which the game has just written the ping of, or nothing when it has
-        /// none.
+        /// none. A single-server refresh that is out shows the sync icon; otherwise a server the master list could
+        /// not reach keeps the warning triangle over whatever the row already says.
         /// </summary>
         internal static void DrawPing(LobbyListItem row)
         {
@@ -113,6 +116,17 @@ namespace MultiplayerLobbyFixes
                 return;
             }
 
+            if (ServerQuery.IsAsking(lobby))
+            {
+                if (!HasGlyph(ping.text))
+                {
+                    ping.text = LoadingIcon + ping.text;
+                }
+
+                SetHover(ping, ListOf(row), string.Empty);
+                return;
+            }
+
             var unreachable = ServerBrowser.IsUnreachable(lobby);
 
             if (unreachable && !HasGlyph(ping.text))
@@ -121,6 +135,35 @@ namespace MultiplayerLobbyFixes
             }
 
             SetHover(ping, ListOf(row), unreachable ? UnreachableText : string.Empty);
+        }
+
+        /// <summary>
+        /// Re-reads both markers on a row: the ping column through vanilla's own update, which is what draws it, and
+        /// the mission cell through the same drawing it gets when it is shown. Called when a state the markers read
+        /// has just changed.
+        /// </summary>
+        internal static void Repaint(ServerLobbyInstance lobby)
+        {
+            try
+            {
+                var list = _list;
+                if (list == null || lobby == null || AllLobbiesField == null)
+                {
+                    return;
+                }
+
+                var rows = AllLobbiesField.GetValue(list) as Dictionary<LobbyInstance, LobbyListItem>;
+                LobbyListItem row;
+                if (rows != null && rows.TryGetValue(lobby, out row) && row != null)
+                {
+                    row.UpdatePing();
+                    DrawMission(row);
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogError("Could not repaint a server row: " + e);
+            }
         }
 
         /// <summary>
@@ -313,16 +356,21 @@ namespace MultiplayerLobbyFixes
             var ping = DetailsPingField != null ? DetailsPingField.GetValue(modal) as TextMeshProUGUI : null;
             if (ping != null)
             {
+                var asking = ServerQuery.IsAsking(lobby);
                 var unreachable = ServerBrowser.IsUnreachable(lobby);
                 var value = lobby.CalculatePing();
                 var body = value != null ? value.Value + "ms" : string.Empty;
-                var text = unreachable ? WarningIcon + body : body;
+                var text = asking
+                    ? LoadingIcon + body
+                    : unreachable
+                        ? WarningIcon + body
+                        : body;
                 if (ping.text != text)
                 {
                     ping.text = text;
                 }
 
-                SetHover(ping, _list, unreachable ? UnreachableText : string.Empty);
+                SetHover(ping, _list, asking ? string.Empty : unreachable ? UnreachableText : string.Empty);
             }
 
             var mission = DetailsMissionField != null

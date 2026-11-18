@@ -18,12 +18,13 @@ Many of those things have configurations if you have BepInEx config manager inst
 Please note that most of the changes only apply to *dedicated servers*, as that's where the issues were.
 
 - A dedicated server whose query port does not answer this machine is listed anyway, from the copy Steam's master list handed over, instead of vanishing with a line in the log. Such servers are often reachable through Steam even when a direct query fails.
-  - Its ping stays blank and its row keeps a warning triangle with a tooltip, and the mark comes off as soon as the server answers anything.
-- If a server entry receives a proper piece of info (name, player count, password flag, ping), a bogus piece of info won't replace it anymore: Steam answers for a server it could not reach with zeroes and an address where the name was, and the game writes those straight into the entry.
-- Added a per-server **`🔃 Refresh` button** in the details window, which asks that one server for its rules again: the mission, the map, the description and the duration. The game only asks once per entry, so a mission that changed, or a rules query that failed, had no way back.
+  - It keeps everything it last said about itself: name, player counts, password, map, mission, description and ping. Nothing about it degrades; the row only gains a warning triangle with a tooltip, and the mark comes off as soon as the server answers anything.
+- If a server entry receives a proper piece of info (name, player count, password flag, ping, tags), a bogus piece of info won't replace it anymore: Steam answers for a server it could not reach with zeroes and an address where the name was, and the game writes those straight into the entry.
+- Added a per-server **`🔃 Refresh` button** in the details window, which asks Steam's master list about that one server: name, counts, ping, map, mission, description, start time and password. One request for one server instead of a whole list refresh, and no other row is touched.
+  - It greys out for the same time as the browser's own Refresh button, and shows a sync icon while the answer is out.
 - Added markers of server state, on the list and in the details window:
+  - a sync icon while that one server is being asked about, or while its rules query is out,
   - ⚠️ for a server the master list could not reach (ping column) and for a rules query that came back empty (mission cell), with a clarification in a tooltip,
-  - a sync icon while a rules query is still out,
   - nothing for fresh info.
 - The `Join` button is not grayed out anymore to be able to join to "0/0" servers (the legit full server will refuse a join anyway).
 - `Join Game` from Steam (and CLI) now properly works in all cases:

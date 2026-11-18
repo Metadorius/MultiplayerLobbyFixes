@@ -61,11 +61,13 @@ namespace MultiplayerLobbyFixes
             try
             {
                 StaleRowPatch.TickDetails();
+                ServerQuery.Tick();
 
                 var list = LobbyListFocus.Current;
                 if (list != null)
                 {
                     FullServerJoin.Tick(list);
+                    LobbyRefreshButtonPatch.Tick(list);
                 }
             }
             finally

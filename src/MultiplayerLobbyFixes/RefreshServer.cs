@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Threading;
 using HarmonyLib;
 using NuclearOption.Networking.Lobbies;
 using TMPro;
@@ -33,27 +32,17 @@ namespace MultiplayerLobbyFixes
 
         private static readonly FieldInfo RefreshField = AccessTools.Field(typeof(LobbyList), "refreshButton");
 
-        private static readonly FieldInfo CancelSourceField =
-            AccessTools.Field(typeof(LobbyDetailsModal), "detailsOpenCancelSource");
-
-        private static readonly FieldInfo RulesField = AccessTools.Field(typeof(ServerLobbyInstance), "rules");
-
-        private static readonly MethodInfo SetLoadedMethod =
-            AccessTools.PropertySetter(typeof(ServerLobbyInstance), "RulesLoaded");
-
-        private static readonly MethodInfo SetFailedMethod =
-            AccessTools.PropertySetter(typeof(ServerLobbyInstance), "RulesFailed");
-
-        private static readonly MethodInfo FetchedMethod = AccessTools.Method(typeof(LobbyDetailsModal), "OnRulesFetched");
-
-        /// <summary>When each server was last asked, so a held down button cannot spend a query a frame.</summary>
-        private static readonly Dictionary<ulong, float> AskedAt = new Dictionary<ulong, float>();
+        private static readonly MethodInfo MissionDetailsMethod =
+            AccessTools.Method(typeof(LobbyDetailsModal), "UpdateMissionDetails");
 
         private static Button _button;
 
         private static LobbyDetailsModal _modal;
 
         private static LobbyList _list;
+
+        /// <summary>When the card's button takes clicks again, which is its own cooldown.</summary>
+        private static float _readyAt;
 
         [HarmonyPostfix]
         private static void Postfix(LobbyDetailsModal __instance, LobbyList lobbyList)
@@ -71,6 +60,25 @@ namespace MultiplayerLobbyFixes
             catch (Exception e)
             {
                 Plugin.Log.LogError("Could not put the refresh button up: " + e);
+            }
+        }
+
+        /// <summary>
+        /// Keeps the button's clickability with the browser's own refresh button: it is grey while that one is
+        /// grey, which is the game's cooldown after a refresh, and while this server's own cooldown runs.
+        /// </summary>
+        internal static void Tick(LobbyList list)
+        {
+            if (!Plugin.RefreshServerButton.Value || _button == null || list == null)
+            {
+                return;
+            }
+
+            var model = RefreshField != null ? RefreshField.GetValue(list) as Button : null;
+            var ready = Time.time >= _readyAt && (model == null || model.interactable);
+            if (_button.interactable != ready)
+            {
+                _button.interactable = ready;
             }
         }
 
@@ -251,48 +259,26 @@ namespace MultiplayerLobbyFixes
                 var lobby = modal != null && LobbyField != null
                     ? LobbyField.GetValue(modal) as ServerLobbyInstance
                     : null;
-                var manager = SteamLobby.instance;
-                if (lobby == null || manager == null)
+                if (lobby == null || !ServerBrowser.IdOf(lobby).IsValid())
                 {
                     return;
                 }
 
-                var id = ServerBrowser.IdOf(lobby);
-                if (!id.IsValid())
+                if (Time.time < _readyAt)
                 {
                     return;
                 }
 
-                if (lobby.RulesLoading)
+                var accepted = ServerQuery.Ask(lobby, copy => Fetched(modal, lobby, copy != null));
+                if (!accepted)
                 {
-                    Plugin.Verbose("A rules query for this server is already out.");
                     return;
                 }
 
-                float askedAt;
-                if (AskedAt.TryGetValue(id.m_SteamID, out askedAt)
-                    && Time.time - askedAt < Plugin.RefreshCooldownSeconds.Value)
-                {
-                    Plugin.Verbose("This server was asked for its rules a moment ago, so the press is ignored.");
-                    return;
-                }
+                _readyAt = Time.time + Plugin.RefreshCooldownSeconds.Value;
 
-                Remember(id.m_SteamID);
-
-                // The game only asks a server whose rules it does not already hold, so the cached answer is
-                // forgotten first. Both flags go with it: a failed answer would otherwise keep the card showing
-                // the old mission next to a warning that says it is not current.
-                var rules = RulesField != null ? RulesField.GetValue(lobby) as Dictionary<string, string> : null;
-                if (rules != null)
-                {
-                    rules.Clear();
-                }
-
-                SetLoadedMethod?.Invoke(lobby, new object[] { false });
-                SetFailedMethod?.Invoke(lobby, new object[] { false });
-
-                manager.QueryServerRules(lobby, TokenOf(modal), () => Fetched(modal, lobby));
-                Plugin.Verbose("Asked " + lobby.LobbyNameSanitized + " for its rules again.");
+                // The row and the card both show the ask through the markers, which read the query's own state.
+                StaleRowPatch.Repaint(lobby);
             }
             catch (Exception e)
             {
@@ -300,38 +286,24 @@ namespace MultiplayerLobbyFixes
             }
         }
 
-        private static void Remember(ulong id)
+        /// <summary>
+        /// Reads the window again once the master list has answered: the mission, the map, the description and the
+        /// preview image all come from what the fresh copy says. A server that did not answer keeps its card, so
+        /// there is nothing to re-read.
+        /// </summary>
+        private static void Fetched(LobbyDetailsModal modal, ServerLobbyInstance lobby, bool answered)
         {
-            if (AskedAt.Count > 256)
+            StaleRowPatch.Repaint(lobby);
+
+            if (!answered)
             {
-                AskedAt.Clear();
+                return;
             }
 
-            AskedAt[id] = Time.time;
-        }
-
-        /// <summary>
-        /// The window's own token, which cancels its queries when the window closes, so a press that is walked away
-        /// from does not leave a query running on Steam's side.
-        /// </summary>
-        private static CancellationToken TokenOf(LobbyDetailsModal modal)
-        {
-            var source = modal != null && CancelSourceField != null
-                ? CancelSourceField.GetValue(modal) as CancellationTokenSource
-                : null;
-            return source != null ? source.Token : CancellationToken.None;
-        }
-
-        /// <summary>
-        /// Reads the window again through the method its own Show calls when the first answer lands: the mission,
-        /// the map, the description and the preview image are all written there.
-        /// </summary>
-        private static void Fetched(LobbyDetailsModal modal, ServerLobbyInstance lobby)
-        {
             try
             {
-                // It checks that the window is still on this server before writing anything.
-                FetchedMethod?.Invoke(modal, new object[] { lobby });
+                // It checks that the window still shows this server before writing anything.
+                MissionDetailsMethod?.Invoke(modal, new object[] { lobby });
             }
             catch (Exception e)
             {
