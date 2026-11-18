@@ -822,19 +822,22 @@ namespace MultiplayerLobbyFixes
 
     /// <summary>
     /// Repairs the copy of a server Steam hands over before vanilla reads it, and puts back the rules the server
-    /// last reported when that copy came with nothing, which are the two halves of never letting a row lose what it
-    /// already knew.
+    /// last reported.
+    ///
+    /// Repair runs first, so a copy that carries nothing is filled before SetDetails parses its tags. KeepRules runs
+    /// after, because SetDetails clears the entry's rules and re-parses only what the tags carry: the description
+    /// chunks and the workshop id are not in the tags at all, so without the second half every copy, good or bad,
+    /// empties the card's description until a rules answer arrives.
     /// </summary>
     [HarmonyPatch(typeof(ServerLobbyInstance), nameof(ServerLobbyInstance.SetDetails))]
     internal static class ServerDetailsPatch
     {
         [HarmonyPrefix]
-        private static void Prefix(gameserveritem_t details, out bool __state)
+        private static void Prefix(gameserveritem_t details)
         {
-            __state = false;
             try
             {
-                __state = ServerBrowser.Repair(details);
+                ServerBrowser.Repair(details);
             }
             catch (Exception e)
             {
@@ -843,12 +846,9 @@ namespace MultiplayerLobbyFixes
         }
 
         [HarmonyPostfix]
-        private static void Postfix(ServerLobbyInstance __instance, bool __state)
+        private static void Postfix(ServerLobbyInstance __instance)
         {
-            if (__state)
-            {
-                ServerBrowser.KeepRules(__instance);
-            }
+            ServerBrowser.KeepRules(__instance);
         }
     }
 

@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Threading;
 using HarmonyLib;
 using NuclearOption.Networking.Lobbies;
+using Steamworks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
@@ -357,6 +358,56 @@ namespace MultiplayerLobbyFixes
                 ? CancelSourceField.GetValue(modal) as CancellationTokenSource
                 : null;
             return source != null ? source.Token : CancellationToken.None;
+        }
+    }
+
+    /// <summary>
+    /// Keeps the preview image from blanking when the card is read again for the same mission.
+    ///
+    /// The game's own `SetPreviewImage` greys the image and clears its sprite before it awaits the workshop
+    /// thumbnail, so every read of the card flashes the fallback colour and then the picture. Opening a card pays
+    /// that once; a refresh would pay it once per read, and a card read after the rules answer as well as after the
+    /// master answer pays it twice. Neither is worth watching.
+    ///
+    /// A read for the same workshop id and mission name as the picture already on screen is skipped, so the image
+    /// simply stays. A different server, or a different mission on the same one, is let through as usual.
+    /// </summary>
+    [HarmonyPatch]
+    internal static class PreviewFlickerPatch
+    {
+        private static readonly FieldInfo ImageField = AccessTools.Field(typeof(LobbyDetailsModal), "missionImage");
+
+        private static ulong _shownId;
+
+        private static string _shownName;
+
+        [HarmonyTargetMethod]
+        private static MethodBase Target()
+        {
+            return AccessTools.Method(typeof(LobbyDetailsModal), "SetPreviewImage");
+        }
+
+        [HarmonyPrefix]
+        private static bool Prefix(LobbyDetailsModal __instance, PublishedFileId_t id, string missionName)
+        {
+            var image = ImageField != null ? ImageField.GetValue(__instance) as Image : null;
+            if (image == null)
+            {
+                return true;
+            }
+
+            var same = id.m_PublishedFileId == _shownId && missionName == _shownName;
+
+            // The picture already on screen is a real one or the fallback, and the fallback is still a sprite: a
+            // null sprite means the last read was cancelled midway, which is worth redoing.
+            if (same && image.sprite != null)
+            {
+                return false;
+            }
+
+            _shownId = id.m_PublishedFileId;
+            _shownName = missionName;
+            return true;
         }
     }
 }
